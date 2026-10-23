@@ -11,6 +11,7 @@
     "typecheck": "npm --prefix client run typecheck && npm --prefix server run typecheck",
     "test": "npm --prefix server test",
     "check": "npm run typecheck && npm run lint && npm test && npm run build",
-    "test:rules": "npm --prefix firestore-tests test"
+    "test:rules": "npm --prefix firestore-tests test",
+    "test:functions": "npm --prefix functions test"
   }
 }

@@ -31,6 +31,10 @@ data class VibeRoute(val fromHome: Boolean = false)
 @Serializable
 data object HomeRoute
 
+/** Server-side compatibility matching (one Match button, no swiping). */
+@Serializable
+data object MatchRoute
+
 /** The member's own finalized, read-only profile. */
 @Serializable
 data object MyProfileRoute

@@ -6,6 +6,8 @@ import com.codecrafters.kehdona.data.auth.CredentialManagerGoogleIdTokenProvider
 import com.codecrafters.kehdona.data.auth.FirebaseAuthRepository
 import com.codecrafters.kehdona.data.auth.ForegroundActivityTracker
 import com.codecrafters.kehdona.data.auth.GoogleIdTokenProvider
+import com.codecrafters.kehdona.data.match.FirebaseMatchRepository
+import com.codecrafters.kehdona.data.match.MatchRepository
 import com.codecrafters.kehdona.data.onboarding.DataStoreOnboardingRepository
 import com.codecrafters.kehdona.data.onboarding.OnboardingRepository
 import com.codecrafters.kehdona.data.profile.FirestoreProfileRepository
@@ -17,6 +19,7 @@ interface AppContainer {
     val authRepository: AuthRepository
     val profileRepository: ProfileRepository
     val googleIdTokenProvider: GoogleIdTokenProvider
+    val matchRepository: MatchRepository
 }
 
 class DefaultAppContainer(application: Application) : AppContainer {
@@ -31,6 +34,8 @@ class DefaultAppContainer(application: Application) : AppContainer {
     }
 
     override val profileRepository: ProfileRepository by lazy { FirestoreProfileRepository() }
+
+    override val matchRepository: MatchRepository by lazy { FirebaseMatchRepository() }
 
     override val googleIdTokenProvider: GoogleIdTokenProvider by lazy {
         CredentialManagerGoogleIdTokenProvider(application, activityTracker)

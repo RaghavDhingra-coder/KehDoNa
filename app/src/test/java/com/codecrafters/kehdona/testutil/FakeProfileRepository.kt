@@ -4,6 +4,8 @@ import com.codecrafters.kehdona.data.profile.PersonalityProfile
 import com.codecrafters.kehdona.data.profile.ProfileException
 import com.codecrafters.kehdona.data.profile.ProfileRepository
 import com.codecrafters.kehdona.data.profile.UserProfile
+import com.codecrafters.kehdona.model.Gender
+import com.codecrafters.kehdona.model.MatchPreference
 
 /**
  * In-memory [ProfileRepository] standing in for Firestore. It outlives ViewModels and sign-outs,
@@ -36,8 +38,19 @@ class FakeProfileRepository(vararg initial: UserProfile) : ProfileRepository {
 
     override suspend fun createProfile(profile: UserProfile) {
         check()
-        // Mirrors the Firestore transaction: an existing profile only takes the new name.
-        profiles[profile.uid] = profiles[profile.uid]?.copy(name = profile.name) ?: profile
+        // Mirrors the Firestore transaction: an existing profile only takes the new name and,
+        // when given, the new matching details.
+        val existing = profiles[profile.uid]
+        profiles[profile.uid] = when {
+            existing == null -> profile
+            profile.hasMatchingDetails -> existing.copy(
+                name = profile.name,
+                gender = profile.gender,
+                genderSelfDescription = profile.genderSelfDescription,
+                matchPreference = profile.matchPreference,
+            )
+            else -> existing.copy(name = profile.name)
+        }
     }
 
     override suspend fun getPersonality(uid: String): PersonalityProfile? {
@@ -57,6 +70,24 @@ class FakeProfileRepository(vararg initial: UserProfile) : ProfileRepository {
     override suspend fun skipPersonality(uid: String) {
         check()
         profiles[uid] = profiles.getValue(uid).copy(personalitySkipped = true)
+    }
+
+    val matchingUpdates = mutableListOf<UserProfile>()
+
+    override suspend fun updateMatchingDetails(
+        uid: String,
+        gender: Gender,
+        genderSelfDescription: String?,
+        matchPreference: MatchPreference,
+    ) {
+        check()
+        val updated = profiles.getValue(uid).copy(
+            gender = gender,
+            genderSelfDescription = genderSelfDescription.takeIf { gender == Gender.SelfDescribe },
+            matchPreference = matchPreference,
+        )
+        profiles[uid] = updated
+        matchingUpdates += updated
     }
 
     private fun check() {

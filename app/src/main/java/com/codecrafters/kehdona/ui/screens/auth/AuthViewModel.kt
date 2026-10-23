@@ -12,10 +12,13 @@ import com.codecrafters.kehdona.data.auth.PhoneResendToken
 import com.codecrafters.kehdona.data.profile.ProfileException
 import com.codecrafters.kehdona.data.profile.ProfileRepository
 import com.codecrafters.kehdona.data.profile.UserProfile
+import com.codecrafters.kehdona.domain.MatchingDetailsInput
 import com.codecrafters.kehdona.domain.SessionResolver
 import com.codecrafters.kehdona.domain.SessionStage
 import com.codecrafters.kehdona.domain.Validation
 import com.codecrafters.kehdona.model.AuthMode
+import com.codecrafters.kehdona.model.Gender
+import com.codecrafters.kehdona.model.MatchPreference
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -46,6 +49,8 @@ data class AuthUiState(
     val email: String = "",
     val password: String = "",
     val otp: String = "",
+    /** Sign-up only: gender and who they'd like to match with. */
+    val matching: MatchingDetailsInput = MatchingDetailsInput(),
     val nameError: String? = null,
     val phoneError: String? = null,
     val emailError: String? = null,
@@ -92,6 +97,14 @@ class AuthViewModel(
     fun onMethodChange(method: AuthMethod) = _uiState.update {
         if (it.isBusy) it else it.copy(method = method, errorMessage = notConfiguredMessage(), infoMessage = null)
     }
+
+    fun onGenderChange(value: Gender) = _uiState.update { it.copy(matching = it.matching.withGender(value)) }
+
+    fun onSelfDescriptionChange(value: String) =
+        _uiState.update { it.copy(matching = it.matching.withSelfDescription(value)) }
+
+    fun onPreferenceChange(value: MatchPreference) =
+        _uiState.update { it.copy(matching = it.matching.withPreference(value)) }
 
     fun onNameChange(value: String) = _uiState.update {
         it.copy(name = value.take(Validation.NameMaxLength + 10), nameError = null)
@@ -164,10 +177,18 @@ class AuthViewModel(
             _uiState.update { it.copy(errorMessage = notSetUp.message, infoMessage = null) }
             return
         }
-        // On sign-up the name is optional here; if it's filled in it has to be valid.
+        // On sign-up the name and matching details are optional here (profile setup asks for
+        // anything missing), but whatever is filled in has to be valid.
         if (state.isSignUp && state.name.isNotBlank()) {
             Validation.nameError(state.name)?.let { error ->
                 _uiState.update { it.copy(nameError = error) }
+                return
+            }
+        }
+        if (state.isSignUp && state.matching.gender != null) {
+            val matching = state.matching.validated()
+            if (matching.hasErrors) {
+                _uiState.update { it.copy(matching = matching) }
                 return
             }
         }
@@ -197,8 +218,9 @@ class AuthViewModel(
         val state = _uiState.value
         val nameError = if (state.isSignUp && !resend) Validation.nameError(state.name) else null
         val phoneError = Validation.phoneError(state.countryCode, state.phone)
-        if (nameError != null || phoneError != null) {
-            _uiState.update { it.copy(nameError = nameError, phoneError = phoneError) }
+        val matching = if (state.isSignUp && !resend) state.matching.validated() else state.matching
+        if (nameError != null || phoneError != null || matching.hasErrors) {
+            _uiState.update { it.copy(nameError = nameError, phoneError = phoneError, matching = matching) }
             return
         }
         val number = requireNotNull(Validation.toE164(state.countryCode, state.phone))
@@ -231,8 +253,11 @@ class AuthViewModel(
         } else {
             "Enter your password.".takeIf { state.password.isEmpty() }
         }
-        if (nameError != null || emailError != null || passwordError != null) {
-            _uiState.update { it.copy(nameError = nameError, emailError = emailError, passwordError = passwordError) }
+        val matching = if (state.isSignUp) state.matching.validated() else state.matching
+        if (nameError != null || emailError != null || passwordError != null || matching.hasErrors) {
+            _uiState.update {
+                it.copy(nameError = nameError, emailError = emailError, passwordError = passwordError, matching = matching)
+            }
             return
         }
         run(AuthBusy.Submitting, onError = { it.copy(password = "") }) {
@@ -256,7 +281,15 @@ class AuthViewModel(
         try {
             if (typedName != null && profiles.getProfile(user.uid) == null) {
                 profiles.createProfile(
-                    UserProfile(uid = user.uid, name = typedName, email = user.email, phoneNumber = user.phoneNumber),
+                    UserProfile(
+                        uid = user.uid,
+                        name = typedName,
+                        email = user.email,
+                        phoneNumber = user.phoneNumber,
+                        gender = state.matching.gender,
+                        genderSelfDescription = state.matching.cleanSelfDescription,
+                        matchPreference = state.matching.preference.takeIf { state.matching.gender != null },
+                    ),
                 )
             }
             val stage = sessionResolver.resolve()

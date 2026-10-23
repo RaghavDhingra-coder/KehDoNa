@@ -40,6 +40,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.codecrafters.kehdona.domain.Validation
 import com.codecrafters.kehdona.model.AuthMode
+import com.codecrafters.kehdona.model.Gender
+import com.codecrafters.kehdona.model.MatchPreference
 import com.codecrafters.kehdona.ui.components.Badge
 import com.codecrafters.kehdona.ui.components.BadgeTone
 import com.codecrafters.kehdona.ui.components.EnterReveal
@@ -50,6 +52,7 @@ import com.codecrafters.kehdona.ui.components.GoogleSignInButton
 import com.codecrafters.kehdona.ui.components.InlineMessage
 import com.codecrafters.kehdona.ui.components.KehDoNaTextField
 import com.codecrafters.kehdona.ui.components.LinkButton
+import com.codecrafters.kehdona.ui.components.MatchingDetailsFields
 import com.codecrafters.kehdona.ui.components.MessageTone
 import com.codecrafters.kehdona.ui.components.OrDivider
 import com.codecrafters.kehdona.ui.components.OtpInput
@@ -85,6 +88,9 @@ fun AuthScreen(
             onSwitchMode = onSwitchMode,
             onMethodChange = viewModel::onMethodChange,
             onNameChange = viewModel::onNameChange,
+            onGenderChange = viewModel::onGenderChange,
+            onSelfDescriptionChange = viewModel::onSelfDescriptionChange,
+            onPreferenceChange = viewModel::onPreferenceChange,
             onCountryCodeChange = viewModel::onCountryCodeChange,
             onPhoneChange = viewModel::onPhoneChange,
             onEmailChange = viewModel::onEmailChange,
@@ -105,6 +111,9 @@ class AuthActions(
     val onSwitchMode: () -> Unit = {},
     val onMethodChange: (AuthMethod) -> Unit = {},
     val onNameChange: (String) -> Unit = {},
+    val onGenderChange: (Gender) -> Unit = {},
+    val onSelfDescriptionChange: (String) -> Unit = {},
+    val onPreferenceChange: (MatchPreference) -> Unit = {},
     val onCountryCodeChange: (String) -> Unit = {},
     val onPhoneChange: (String) -> Unit = {},
     val onEmailChange: (String) -> Unit = {},
@@ -172,6 +181,18 @@ private fun AuthForm(state: AuthUiState, actions: AuthActions) {
                 enabled = enabled,
                 contentType = ContentType.PersonFullName,
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Next),
+            )
+            MatchingDetailsFields(
+                gender = state.matching.gender,
+                selfDescription = state.matching.selfDescription,
+                preference = state.matching.preference,
+                onGenderChange = actions.onGenderChange,
+                onSelfDescriptionChange = actions.onSelfDescriptionChange,
+                onPreferenceChange = actions.onPreferenceChange,
+                genderError = state.matching.genderError,
+                selfDescriptionError = state.matching.selfDescriptionError,
+                preferenceError = state.matching.preferenceError,
+                enabled = enabled,
             )
         }
 

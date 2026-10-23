@@ -6,9 +6,12 @@ import com.codecrafters.kehdona.data.auth.AuthRepository
 import com.codecrafters.kehdona.data.profile.ProfileException
 import com.codecrafters.kehdona.data.profile.ProfileRepository
 import com.codecrafters.kehdona.data.profile.UserProfile
+import com.codecrafters.kehdona.domain.MatchingDetailsInput
 import com.codecrafters.kehdona.domain.SessionResolver
 import com.codecrafters.kehdona.domain.SessionStage
 import com.codecrafters.kehdona.domain.Validation
+import com.codecrafters.kehdona.model.Gender
+import com.codecrafters.kehdona.model.MatchPreference
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -19,6 +22,7 @@ data class ProfileSetupUiState(
     val name: String,
     val contact: String?,
     val nameError: String? = null,
+    val matching: MatchingDetailsInput = MatchingDetailsInput(),
     val isSaving: Boolean = false,
     val errorMessage: String? = null,
     val next: SessionStage? = null,
@@ -44,6 +48,14 @@ class ProfileSetupViewModel(
         it.copy(name = value.take(Validation.NameMaxLength + 10), nameError = null)
     }
 
+    fun onGenderChange(value: Gender) = _uiState.update { it.copy(matching = it.matching.withGender(value)) }
+
+    fun onSelfDescriptionChange(value: String) =
+        _uiState.update { it.copy(matching = it.matching.withSelfDescription(value)) }
+
+    fun onPreferenceChange(value: MatchPreference) =
+        _uiState.update { it.copy(matching = it.matching.withPreference(value)) }
+
     fun save() {
         val state = _uiState.value
         if (state.isSaving) return
@@ -52,8 +64,10 @@ class ProfileSetupViewModel(
             _uiState.update { it.copy(next = SessionStage.SignedOut) }
             return
         }
-        Validation.nameError(state.name)?.let { error ->
-            _uiState.update { it.copy(nameError = error) }
+        val nameError = Validation.nameError(state.name)
+        val matching = state.matching.validated()
+        if (nameError != null || matching.hasErrors) {
+            _uiState.update { it.copy(nameError = nameError, matching = matching) }
             return
         }
         _uiState.update { it.copy(isSaving = true, errorMessage = null) }
@@ -65,6 +79,9 @@ class ProfileSetupViewModel(
                         name = Validation.normalizeName(state.name),
                         email = user.email,
                         phoneNumber = user.phoneNumber,
+                        gender = matching.gender,
+                        genderSelfDescription = matching.cleanSelfDescription,
+                        matchPreference = matching.preference,
                     ),
                 )
                 val next = sessionResolver.resolve()

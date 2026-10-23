@@ -2,6 +2,8 @@ rules_version = '2';
 
 // KehDoNa Phase 2: each member can read and write only their own private profile at users/{uid},
 // and create (once) and read their own finalized personality profile at personalityProfiles/{uid}.
+// Matching runs only in Cloud Functions (Admin SDK, which bypasses these rules): clients can read
+// their own matchState and the matches they're part of, and can never write either.
 // Tested by firestore-tests/ on the local emulator. Publish via Console › Firestore › Rules, or
 // `firebase use --add` then `firebase deploy --only firestore:rules` (firebase.json is already set up).
 service cloud.firestore {
@@ -42,14 +44,28 @@ service cloud.firestore {
     }
 
     function allowedKeys() {
-      return ['name', 'email', 'phoneNumber', 'personalitySkipped', 'createdAt', 'updatedAt'];
+      return ['name', 'email', 'phoneNumber', 'personalitySkipped', 'gender', 'genderSelfDescription',
+              'matchPreference', 'createdAt', 'updatedAt'];
+    }
+
+    // Gender and preference are exactly what the member chose (model/Gender.kt); never inferred.
+    function validMatchingDetails(data) {
+      return (!('gender' in data)
+              || data.gender in ['man', 'woman', 'non_binary', 'self_describe', 'prefer_not_to_say'])
+        && (!('matchPreference' in data) || data.matchPreference in ['men', 'women', 'all'])
+        // The private self-description only exists alongside "self_describe".
+        && (!('genderSelfDescription' in data)
+              || (data.get('gender', null) == 'self_describe'
+                  && data.genderSelfDescription is string
+                  && data.genderSelfDescription.size() >= 1 && data.genderSelfDescription.size() <= 40));
     }
 
     // Type and size checks shared by create and update.
     function validShape(data) {
       return data.keys().hasOnly(allowedKeys())
         && validName(data.name)
-        && (!('personalitySkipped' in data) || data.personalitySkipped is bool);
+        && (!('personalitySkipped' in data) || data.personalitySkipped is bool)
+        && validMatchingDetails(data);
     }
 
     function validCreate(data) {
@@ -104,7 +120,19 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
-    // Everything else, including subcollections, stays closed until later phases.
+    // Matching status, written only by the requestMatch / cancelMatchRequest functions.
+    match /matchState/{uid} {
+      allow get: if isOwner(uid);
+      allow list, write: if false;
+    }
+
+    // A confirmed match: first names and shared themes only. Readable by its two members.
+    match /matches/{matchId} {
+      allow get: if request.auth != null && request.auth.uid in resource.data.userIds;
+      allow list, write: if false;
+    }
+
+    // Everything else (including matchQueue and subcollections) stays closed to clients.
     match /{document=**} {
       allow read, write: if false;
     }

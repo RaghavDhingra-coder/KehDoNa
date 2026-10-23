@@ -72,6 +72,29 @@ of queueing, and a retry after an ambiguous failure returns the already-locked p
 Firebase has no built-in email OTP, so email accounts are verified with Firebase's verification
 link. A 6-digit email code would need a backend (e.g. a Cloud Function issuing custom tokens).
 
+### Matching
+
+*Match* (on Home) finds the most compatible person who is looking right now. There is no swiping.
+
+- **Gender and preference.** Sign-up and profile setup ask "I am": Man, Woman, Non-binary,
+  Self-describe (optional private text) or Prefer not to say; and "Who would you like to match
+  with?": Men, Women or All genders. Nothing is preselected for gender. Picking one suggests the
+  opposite gender (all genders for the other answers), which the person can change. Existing
+  members without these answers are asked on the Match screen first; nobody's gender is guessed.
+- **Eligibility.** Both people's preferences must include each other. Members who are
+  non-binary, self-describe or prefer not to say are matched only with people open to all genders.
+- **Compatibility.** The server compares the two finalized personality profiles section by section
+  (interests, values, relationship preferences, communication, …) plus each person's
+  "compatibility traits" against the other, and picks the highest score (longest-waiting first on ties).
+- **Backend.** `functions/` has two callable Cloud Functions, `requestMatch` and
+  `cancelMatchRequest` (region `us-central1`). They run Firestore transactions so a member is in at
+  most one match, the same pair is never matched twice (`matches/{uidA_uidB}`), and simultaneous
+  requests can't conflict. If nobody fits, the member waits in `matchQueue` and is matched when a
+  compatible member asks; the app listens to `matchState/{uid}`, so both people see the match.
+- **Privacy.** Clients can't read the queue, other profiles or anyone else's match. A match document
+  holds only the two first names, a score and up to five words both profiles share; never contact
+  details, gender, the self-description or profile text.
+
 ### Firebase setup (required — sign-in is disabled until this is done)
 
 Without `app/google-services.json` the app still builds, but every sign-in screen says Firebase
@@ -89,11 +112,15 @@ isn't configured and no sign-in is attempted.
 5. Phone auth: Firebase uses Play Integrity (reCAPTCHA as fallback). Enable the **Play Integrity
    API** in Google Cloud for the project. Phone auth needs the **Blaze** plan for real SMS beyond
    the free quota; for testing, add numbers and codes under *Phone numbers for testing*.
-6. *Firestore Database*: create a database (production mode), then publish `firestore.rules`:
+6. *Matching backend*: Cloud Functions need the **Blaze** (pay-as-you-go) plan. Then
+   `npm --prefix functions install`, `firebase use --add` (pick the project) and
+   `firebase deploy --only functions`. Until they're deployed, Match shows
+   "Matching isn't switched on for KehDoNa yet (NOT_FOUND)".
+7. *Firestore Database*: create a database (production mode), then publish `firestore.rules`:
    paste it into Console › Firestore › Rules, or run `firebase use --add` (pick the project) and
    `firebase deploy --only firestore:rules`. `firebase.json` is already configured; don't run
    `firebase init`, which would overwrite it. Run the rules tests below first.
-7. Optional: customise the verification and password-reset email templates under
+8. Optional: customise the verification and password-reset email templates under
    *Authentication › Templates*.
 
 ### Verifying Phase 2
@@ -103,6 +130,8 @@ isn't configured and no sign-in is attempted.
 
 npm --prefix firestore-tests install   # once
 npm run test:rules                     # Firestore security rules on the local emulator
+npm --prefix functions install         # once
+npm run test:functions                 # matching logic + transactions on the local emulator
 ```
 
 The rules tests need **JDK 21+** on `PATH` (Android Studio's bundled JBR works:
@@ -173,6 +202,7 @@ KehDoNa/
 ├── app/, gradle/, …        Android Studio project (the KehDoNa app)
 ├── firestore.rules         Firestore security rules for user profiles
 ├── firestore-tests/        Emulator tests for firestore.rules (`npm run test:rules`)
+├── functions/              Cloud Functions: server-side matching (`npm run test:functions`)
 ├── firebase.json           Firebase CLI config (rules path, emulator port); no project is linked
 ├── docker-compose.yml      Optional local PostgreSQL
 ├── .env.example            Variables for docker-compose

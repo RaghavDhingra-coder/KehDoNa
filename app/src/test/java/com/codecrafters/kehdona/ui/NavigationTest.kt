@@ -15,16 +15,21 @@ import androidx.navigation.compose.ComposeNavigator
 import androidx.navigation.testing.TestNavHostController
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.codecrafters.kehdona.data.auth.AuthError
+import com.codecrafters.kehdona.data.match.Match
+import com.codecrafters.kehdona.data.match.MatchStatus
 import com.codecrafters.kehdona.data.profile.ProfileException
 import com.codecrafters.kehdona.data.profile.UserProfile
 import com.codecrafters.kehdona.navigation.AuthEntryRoute
 import com.codecrafters.kehdona.navigation.AuthRoute
 import com.codecrafters.kehdona.navigation.HomeRoute
+import com.codecrafters.kehdona.navigation.MatchRoute
 import com.codecrafters.kehdona.navigation.MyProfileRoute
 import com.codecrafters.kehdona.navigation.KehDoNaNavHost
 import com.codecrafters.kehdona.navigation.OnboardingRoute
 import com.codecrafters.kehdona.navigation.VibeRoute
 import com.codecrafters.kehdona.navigation.WelcomeRoute
+import com.codecrafters.kehdona.model.Gender
+import com.codecrafters.kehdona.model.MatchPreference
 import com.codecrafters.kehdona.testutil.FakeAuthRepository
 import com.codecrafters.kehdona.testutil.FakeGoogleIdTokenProvider
 import com.codecrafters.kehdona.testutil.FakeOnboardingRepository
@@ -54,8 +59,10 @@ class NavigationTest {
 
     private var google = FakeGoogleIdTokenProvider()
 
+    private lateinit var container: TestAppContainer
+
     private fun launch(start: StartDestination) {
-        val container = TestAppContainer(repository, auth, profiles, google)
+        container = TestAppContainer(repository, auth, profiles, google)
         composeRule.setContent {
             navController = TestNavHostController(LocalContext.current).apply {
                 navigatorProvider.addNavigator(ComposeNavigator())
@@ -135,7 +142,7 @@ class NavigationTest {
         composeRule.onNodeWithText("Say it, softly.").assertIsDisplayed()
         composeRule.onNodeWithText("Sign up with Google").performScrollTo().assertIsDisplayed()
 
-        composeRule.onNodeWithContentDescription("Back").performClick()
+        composeRule.onNodeWithContentDescription("Back").performScrollTo().performClick()
 
         assertCurrentRoute(AuthEntryRoute::class)
     }
@@ -146,6 +153,7 @@ class NavigationTest {
         clickText("Create an account")
 
         composeRule.onNodeWithText("Your name").performTextInput("Riya Sharma")
+        composeRule.onNodeWithText("Woman").performScrollTo().performClick()
         composeRule.onNodeWithText("Phone number").performTextInput("9876543210")
         clickText("Send OTP")
 
@@ -260,6 +268,30 @@ class NavigationTest {
         assertCurrentRoute(HomeRoute::class)
         clickText("Open My Profile")
         composeRule.onNodeWithText("Indie music and late-night playlists").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test
+    fun home_match_completesMissingDetails_thenMatchesAndShowsResult() {
+        auth = FakeAuthRepository(signedIn = FakeAuthRepository.user(uid = "u1"))
+        profiles.profiles["u1"] = UserProfile("u1", "Riya Sharma", null, "+919876543210")
+        profiles.withPersonality("u1")
+        launch(StartDestination.Home)
+        container.matchRepository.matches["arjun_u1"] = Match("arjun_u1", "Arjun", 0.3, listOf("music"))
+        container.matchRepository.nextRequestResult = MatchStatus.Matched("arjun_u1")
+
+        clickText("Match")
+        assertCurrentRoute(MatchRoute::class)
+        composeRule.onNodeWithText("Complete your profile").assertIsDisplayed()
+        composeRule.onNodeWithText("Woman").performScrollTo().performClick()
+        clickText("Save and continue")
+        composeRule.onNodeWithText("Find your match").assertIsDisplayed()
+
+        clickText("Match")
+
+        composeRule.onNodeWithText("You and Arjun ✨").assertIsDisplayed()
+        composeRule.onNodeWithText("MUSIC").performScrollTo().assertIsDisplayed()
+        assertEquals(Gender.Woman, profiles.profiles.getValue("u1").gender)
+        assertEquals(MatchPreference.Men, profiles.profiles.getValue("u1").matchPreference)
     }
 
     @Test

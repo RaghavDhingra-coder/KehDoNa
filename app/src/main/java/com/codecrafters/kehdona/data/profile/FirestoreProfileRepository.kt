@@ -1,6 +1,8 @@
 package com.codecrafters.kehdona.data.profile
 
 import android.util.Log
+import com.codecrafters.kehdona.model.Gender
+import com.codecrafters.kehdona.model.MatchPreference
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
@@ -33,14 +35,32 @@ class FirestoreProfileRepository(
             put(Name, profile.name)
             profile.email?.let { put(Email, it) }
             profile.phoneNumber?.let { put(Phone, it) }
+            profile.gender?.let { put(GenderField, it.wire) }
+            profile.genderSelfDescription?.takeIf { profile.gender == Gender.SelfDescribe }
+                ?.let { put(GenderSelfDescription, it) }
+            profile.matchPreference?.let { put(MatchPreferenceField, it.wire) }
             put(CreatedAt, FieldValue.serverTimestamp())
             put(UpdatedAt, FieldValue.serverTimestamp())
         }
         firestore().runTransaction { transaction ->
             if (transaction.get(ref).exists()) {
                 // Already created (e.g. a retry after a network error): keep createdAt and contact
-                // details, and apply only the name the person just typed.
-                transaction.update(ref, mapOf(Name to profile.name, UpdatedAt to FieldValue.serverTimestamp()))
+                // details, and apply only what the person just typed.
+                val updates = buildMap<String, Any> {
+                    put(Name, profile.name)
+                    put(UpdatedAt, FieldValue.serverTimestamp())
+                    // Matching details the person just chose (never contact details or createdAt).
+                    if (profile.gender != null && profile.matchPreference != null) {
+                        put(GenderField, profile.gender.wire)
+                        put(MatchPreferenceField, profile.matchPreference.wire)
+                        put(
+                            GenderSelfDescription,
+                            profile.genderSelfDescription?.takeIf { profile.gender == Gender.SelfDescribe }
+                                ?: FieldValue.delete(),
+                        )
+                    }
+                }
+                transaction.update(ref, updates)
             } else {
                 transaction.set(ref, data)
             }
@@ -79,6 +99,21 @@ class FirestoreProfileRepository(
 
     override suspend fun skipPersonality(uid: String) = update(uid, mapOf(PersonalitySkipped to true))
 
+    override suspend fun updateMatchingDetails(
+        uid: String,
+        gender: Gender,
+        genderSelfDescription: String?,
+        matchPreference: MatchPreference,
+    ) = update(
+        uid,
+        mapOf(
+            GenderField to gender.wire,
+            MatchPreferenceField to matchPreference.wire,
+            // The free-text description only exists alongside "Self-describe"; remove it otherwise.
+            GenderSelfDescription to (genderSelfDescription?.takeIf { gender == Gender.SelfDescribe } ?: FieldValue.delete()),
+        ),
+    )
+
     private suspend fun update(uid: String, fields: Map<String, Any>) = guard("update users") {
         doc(uid).update(fields + (UpdatedAt to FieldValue.serverTimestamp())).await()
         Unit
@@ -90,6 +125,9 @@ class FirestoreProfileRepository(
         email = getString(Email),
         phoneNumber = getString(Phone),
         personalitySkipped = getBoolean(PersonalitySkipped) ?: false,
+        gender = Gender.fromWire(getString(GenderField)),
+        genderSelfDescription = getString(GenderSelfDescription),
+        matchPreference = MatchPreference.fromWire(getString(MatchPreferenceField)),
     )
 
     private fun DocumentSnapshot.toPersonality() = PersonalityProfile(
@@ -124,6 +162,9 @@ class FirestoreProfileRepository(
         const val PersonalitySkipped = "personalitySkipped"
         const val CreatedAt = "createdAt"
         const val UpdatedAt = "updatedAt"
+        const val GenderField = "gender"
+        const val GenderSelfDescription = "genderSelfDescription"
+        const val MatchPreferenceField = "matchPreference"
         const val PersonalityProfiles = "personalityProfiles"
         const val Response = "response"
         const val PromptVersion = "promptVersion"

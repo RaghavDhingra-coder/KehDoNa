@@ -2,7 +2,7 @@
 // Runs only against the local emulator ("demo-" project IDs can never reach a real Firebase project).
 import { initializeTestEnvironment, assertSucceeds, assertFails } from '@firebase/rules-unit-testing';
 import {
-  doc, getDoc, setDoc, updateDoc, deleteDoc, collection, getDocs, runTransaction, serverTimestamp, Timestamp,
+  doc, getDoc, setDoc, updateDoc, deleteDoc, deleteField, collection, getDocs, runTransaction, serverTimestamp, Timestamp,
 } from 'firebase/firestore';
 import { readFileSync } from 'node:fs';
 
@@ -158,6 +158,53 @@ await check('client-clock importedAt', 'deny', () =>
 await check('extra field (e.g. locked: false)', 'deny', () =>
   setDoc(doc(googleUser(), 'personalityProfiles', 'g1'), { response: REPLY, promptVersion: 1, importedAt: ts(), locked: false }));
 await check('12,000-char reply is accepted', 'allow', () => finalizePersonality(googleUser(), 'g1', 'x'.repeat(12000)));
+
+console.log('Gender and match preference on users/{uid}');
+await check('save own gender + preference', 'allow', () =>
+  updateDoc(doc(phoneUser(), 'users', 'phone1'), { gender: 'woman', matchPreference: 'men', updatedAt: ts() }));
+await check('self-describe with private description', 'allow', () =>
+  updateDoc(doc(phoneUser(), 'users', 'phone1'), { gender: 'self_describe', genderSelfDescription: 'genderfluid', matchPreference: 'all', updatedAt: ts() }));
+await check('switching away removes the description', 'allow', () =>
+  updateDoc(doc(phoneUser(), 'users', 'phone1'), { gender: 'non_binary', genderSelfDescription: deleteField(), updatedAt: ts() }));
+await check('unknown gender value', 'deny', () =>
+  updateDoc(doc(phoneUser(), 'users', 'phone1'), { gender: 'robot', updatedAt: ts() }));
+await check('unknown preference value', 'deny', () =>
+  updateDoc(doc(phoneUser(), 'users', 'phone1'), { matchPreference: 'everyone', updatedAt: ts() }));
+await check('description without self-describe', 'deny', () =>
+  updateDoc(doc(phoneUser(), 'users', 'phone1'), { genderSelfDescription: 'x', updatedAt: ts() }));
+await check('description over 40 chars', 'deny', () =>
+  updateDoc(doc(phoneUser(), 'users', 'phone1'), { gender: 'self_describe', genderSelfDescription: 'x'.repeat(41), updatedAt: ts() }));
+await check('sign-up create with gender + preference', 'allow', () =>
+  createProfile(env.authenticatedContext('phone7', { phone_number: '+919876500007' }).firestore(), 'phone7', 'Riya',
+    { phoneNumber: '+919876500007', gender: 'woman', matchPreference: 'men' }));
+await check("set another user's gender", 'deny', () =>
+  updateDoc(doc(emailUser(), 'users', 'phone1'), { gender: 'man', updatedAt: ts() }));
+
+console.log('Matching collections: server-only writes, participant-only reads');
+await env.withSecurityRulesDisabled(async (ctx) => {
+  const admin = ctx.firestore();
+  await setDoc(doc(admin, 'matchState', 'phone1'), { status: 'matched', matchId: 'email1_phone1' });
+  await setDoc(doc(admin, 'matches', 'email1_phone1'), {
+    userIds: ['email1', 'phone1'], participants: { email1: { firstName: 'Riya' }, phone1: { firstName: 'Arjun' } }, score: 0.3, sharedThemes: ['music'],
+  });
+  await setDoc(doc(admin, 'matchQueue', 'g1'), { enqueuedAt: Timestamp.now() });
+});
+await check('owner reads own matchState', 'allow', () => getDoc(doc(phoneUser(), 'matchState', 'phone1')));
+await check("read another user's matchState", 'deny', () => getDoc(doc(emailUser(), 'matchState', 'phone1')));
+await check('client writes own matchState', 'deny', () => setDoc(doc(phoneUser(), 'matchState', 'phone1'), { status: 'idle' }));
+await check('both participants read the match', 'allow', () => getDoc(doc(phoneUser(), 'matches', 'email1_phone1')));
+await check('other participant reads the match', 'allow', () => getDoc(doc(emailUser(), 'matches', 'email1_phone1')));
+await check('non-participant reads the match', 'deny', () => getDoc(doc(googleUser(), 'matches', 'email1_phone1')));
+await check('unauthenticated reads the match', 'deny', () => getDoc(doc(anon(), 'matches', 'email1_phone1')));
+await check('list matches', 'deny', () => getDocs(collection(phoneUser(), 'matches')));
+await check('client creates a match', 'deny', () =>
+  setDoc(doc(googleUser(), 'matches', 'g1_phone1'), { userIds: ['g1', 'phone1'] }));
+await check('participant edits the match', 'deny', () => updateDoc(doc(phoneUser(), 'matches', 'email1_phone1'), { score: 1 }));
+await check('participant deletes the match', 'deny', () => deleteDoc(doc(phoneUser(), 'matches', 'email1_phone1')));
+await check('read the waiting queue', 'deny', () => getDoc(doc(googleUser(), 'matchQueue', 'g1')));
+await check('list the waiting queue', 'deny', () => getDocs(collection(phoneUser(), 'matchQueue')));
+await check('join the queue directly', 'deny', () => setDoc(doc(phoneUser(), 'matchQueue', 'phone1'), { enqueuedAt: ts() }));
+await check("read another user's profile (gender stays private)", 'deny', () => getDoc(doc(emailUser(), 'users', 'phone1')));
 
 console.log('Regression: email sign-up → verify email → load profile (the "profile couldn\'t be accessed" report)');
 const emailVerified = () => env.authenticatedContext('email2', { email: 'meera@college.edu', email_verified: true }).firestore();

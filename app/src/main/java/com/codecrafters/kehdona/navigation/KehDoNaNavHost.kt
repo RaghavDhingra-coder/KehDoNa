@@ -25,6 +25,8 @@ import com.codecrafters.kehdona.ui.screens.auth.AuthScreen
 import com.codecrafters.kehdona.ui.screens.auth.AuthViewModel
 import com.codecrafters.kehdona.ui.screens.home.HomeScreen
 import com.codecrafters.kehdona.ui.screens.home.HomeViewModel
+import com.codecrafters.kehdona.ui.screens.match.MatchScreen
+import com.codecrafters.kehdona.ui.screens.match.MatchViewModel
 import com.codecrafters.kehdona.ui.screens.onboarding.OnboardingScreen
 import com.codecrafters.kehdona.ui.screens.onboarding.OnboardingViewModel
 import com.codecrafters.kehdona.ui.screens.profile.MyProfileScreen
@@ -142,8 +144,17 @@ fun KehDoNaNavHost(
             HomeScreen(
                 viewModel = viewModel { HomeViewModel(auth, profiles) },
                 onOpenProfile = { navController.navigate(MyProfileRoute) },
+                onMatch = { navController.navigate(MatchRoute) },
                 onDiscoverVibe = { navController.navigate(VibeRoute(fromHome = true)) },
                 onSignedOut = { goTo(SessionStage.SignedOut) },
+            )
+        }
+        composable<MatchRoute> {
+            MatchScreen(
+                viewModel = viewModel { MatchViewModel(auth, profiles, container.matchRepository) },
+                onBack = { navController.popBackStack() },
+                onDiscoverVibe = { navController.navigate(VibeRoute(fromHome = true)) },
+                onNext = { goTo(it) },
             )
         }
         composable<MyProfileRoute> {

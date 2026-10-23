@@ -19,6 +19,8 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.codecrafters.kehdona.domain.SessionStage
+import com.codecrafters.kehdona.model.Gender
+import com.codecrafters.kehdona.model.MatchPreference
 import com.codecrafters.kehdona.ui.components.Badge
 import com.codecrafters.kehdona.ui.components.BadgeTone
 import com.codecrafters.kehdona.ui.components.EnterReveal
@@ -27,6 +29,7 @@ import com.codecrafters.kehdona.ui.components.FormScreen
 import com.codecrafters.kehdona.ui.components.FormStack
 import com.codecrafters.kehdona.ui.components.InlineMessage
 import com.codecrafters.kehdona.ui.components.KehDoNaTextField
+import com.codecrafters.kehdona.ui.components.MatchingDetailsFields
 import com.codecrafters.kehdona.ui.components.PrimaryButton
 import com.codecrafters.kehdona.ui.components.PulsingHeart
 import com.codecrafters.kehdona.ui.components.QuietButton
@@ -44,6 +47,9 @@ fun ProfileSetupScreen(viewModel: ProfileSetupViewModel, onNext: (SessionStage) 
     ProfileSetupScreen(
         state = state,
         onNameChange = viewModel::onNameChange,
+        onGenderChange = viewModel::onGenderChange,
+        onSelfDescriptionChange = viewModel::onSelfDescriptionChange,
+        onPreferenceChange = viewModel::onPreferenceChange,
         onSave = viewModel::save,
         onSignOut = viewModel::signOut,
     )
@@ -53,6 +59,9 @@ fun ProfileSetupScreen(viewModel: ProfileSetupViewModel, onNext: (SessionStage) 
 fun ProfileSetupScreen(
     state: ProfileSetupUiState,
     onNameChange: (String) -> Unit,
+    onGenderChange: (Gender) -> Unit,
+    onSelfDescriptionChange: (String) -> Unit,
+    onPreferenceChange: (MatchPreference) -> Unit,
     onSave: () -> Unit,
     onSignOut: () -> Unit,
     modifier: Modifier = Modifier,
@@ -82,6 +91,18 @@ fun ProfileSetupScreen(
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = { onSave() }),
             )
+            MatchingDetailsFields(
+                gender = state.matching.gender,
+                selfDescription = state.matching.selfDescription,
+                preference = state.matching.preference,
+                onGenderChange = onGenderChange,
+                onSelfDescriptionChange = onSelfDescriptionChange,
+                onPreferenceChange = onPreferenceChange,
+                genderError = state.matching.genderError,
+                selfDescriptionError = state.matching.selfDescriptionError,
+                preferenceError = state.matching.preferenceError,
+                enabled = !state.isSaving,
+            )
             InlineMessage(state.errorMessage)
             PrimaryButton(
                 text = "Continue",
@@ -99,6 +120,6 @@ fun ProfileSetupScreen(
 @Composable
 private fun ProfileSetupPreview() {
     KehDoNaTheme {
-        ProfileSetupScreen(ProfileSetupUiState(name = "Riya Sharma", contact = "riya@example.com"), {}, {}, {})
+        ProfileSetupScreen(ProfileSetupUiState(name = "Riya Sharma", contact = "riya@example.com"), {}, {}, {}, {}, {}, {})
     }
 }

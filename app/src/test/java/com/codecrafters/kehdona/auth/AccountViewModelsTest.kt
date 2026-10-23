@@ -4,6 +4,8 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.codecrafters.kehdona.data.auth.AuthProvider
 import com.codecrafters.kehdona.data.profile.UserProfile
 import com.codecrafters.kehdona.data.profile.profileException
+import com.codecrafters.kehdona.model.Gender
+import com.codecrafters.kehdona.model.MatchPreference
 import com.google.firebase.firestore.FirebaseFirestoreException.Code
 import com.codecrafters.kehdona.domain.SessionStage
 import com.codecrafters.kehdona.testutil.FakeAuthRepository
@@ -97,8 +99,15 @@ class AccountViewModelsTest {
 
         vm.onNameChange("Riya Sharma")
         vm.save()
+        assertNotNull("gender is required, never guessed", vm.uiState.value.matching.genderError)
+        assertTrue(profiles.profiles.isEmpty())
+
+        vm.onGenderChange(Gender.Woman)
+        vm.save()
 
         assertEquals("Riya Sharma", profiles.profiles.getValue("g1").name)
+        assertEquals(Gender.Woman, profiles.profiles.getValue("g1").gender)
+        assertEquals(MatchPreference.Men, profiles.profiles.getValue("g1").matchPreference)
         assertEquals(SessionStage.DiscoverVibe, vm.uiState.value.next)
     }
 
@@ -108,9 +117,13 @@ class AccountViewModelsTest {
         val profiles = FakeProfileRepository(existing).withPersonality("uid-1")
         val vm = ProfileSetupViewModel("Riya Sharma", FakeAuthRepository(signedIn = user(phone = "+910000000000")), profiles)
 
+        vm.onGenderChange(Gender.Woman)
         vm.save()
 
-        assertEquals(existing.copy(name = "Riya Sharma"), profiles.profiles.getValue("uid-1"))
+        assertEquals(
+            existing.copy(name = "Riya Sharma", gender = Gender.Woman, matchPreference = MatchPreference.Men),
+            profiles.profiles.getValue("uid-1"),
+        )
         assertEquals(SessionStage.Home, vm.uiState.value.next)
     }
 
@@ -119,6 +132,7 @@ class AccountViewModelsTest {
         val profiles = FakeProfileRepository().apply { failAll = true }
         val vm = ProfileSetupViewModel("Riya", FakeAuthRepository(signedIn = user()), profiles)
 
+        vm.onGenderChange(Gender.PreferNotToSay)
         vm.save()
 
         assertNotNull(vm.uiState.value.errorMessage)

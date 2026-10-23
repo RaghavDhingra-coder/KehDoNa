@@ -5,6 +5,8 @@ import com.codecrafters.kehdona.data.auth.AuthProvider
 import com.codecrafters.kehdona.data.profile.UserProfile
 import com.codecrafters.kehdona.domain.SessionStage
 import com.codecrafters.kehdona.model.AuthMode
+import com.codecrafters.kehdona.model.Gender
+import com.codecrafters.kehdona.model.MatchPreference
 import com.codecrafters.kehdona.testutil.FakeAuthRepository
 import com.codecrafters.kehdona.testutil.FakeGoogleIdTokenProvider
 import com.codecrafters.kehdona.testutil.FakeProfileRepository
@@ -27,8 +29,11 @@ class AuthViewModelTest {
     private val profiles = FakeProfileRepository()
     private val google = FakeGoogleIdTokenProvider()
 
-    private fun viewModel(mode: AuthMode, repo: FakeAuthRepository = auth) =
-        AuthViewModel(mode, repo, profiles, google)
+    /** Sign-up forms in these tests state a gender (now required) unless [statedGender] is false. */
+    private fun viewModel(mode: AuthMode, repo: FakeAuthRepository = auth, statedGender: Boolean = true) =
+        AuthViewModel(mode, repo, profiles, google).apply {
+            if (mode == AuthMode.SignUp && statedGender) onGenderChange(Gender.Woman)
+        }
 
     private val state get() = vm.uiState.value
     private lateinit var vm: AuthViewModel
@@ -294,5 +299,43 @@ class AuthViewModelTest {
         vm.submit()
 
         assertEquals("${AuthError.AppNotAuthorized.message} (ERROR_APP_NOT_AUTHORIZED)", state.errorMessage)
+    }
+
+    @Test
+    fun signUp_requiresAStatedGender_andNeverGuessesOne() {
+        vm = viewModel(AuthMode.SignUp, statedGender = false)
+        vm.onNameChange("Riya")
+        vm.onPhoneChange("9876543210")
+        vm.submit()
+
+        assertNotNull(state.matching.genderError)
+        assertNotNull(state.matching.preferenceError)
+        assertEquals(0, auth.calls)
+    }
+
+    @Test
+    fun signUp_savesStatedGenderAndPreference_onTheProfile() {
+        vm = viewModel(AuthMode.SignUp, statedGender = false)
+        vm.onNameChange("Alex")
+        vm.onGenderChange(Gender.SelfDescribe)
+        vm.onSelfDescriptionChange("  genderfluid ")
+        vm.onPreferenceChange(MatchPreference.All)
+        vm.onPhoneChange("9876543210")
+        vm.submit()
+        vm.onOtpChange("123456")
+
+        val saved = profiles.profiles.getValue("phone-uid")
+        assertEquals(Gender.SelfDescribe, saved.gender)
+        assertEquals("genderfluid", saved.genderSelfDescription)
+        assertEquals(MatchPreference.All, saved.matchPreference)
+    }
+
+    @Test
+    fun googleSignUp_withoutGender_isAllowed_profileIsCompletedLater() {
+        vm = viewModel(AuthMode.SignUp, statedGender = false)
+        vm.signInWithGoogle()
+
+        assertEquals(SessionStage.ProfileSetup, state.outcome?.stage)
+        assertNull(profiles.profiles["google-uid"]?.gender)
     }
 }

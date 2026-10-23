@@ -50,6 +50,17 @@ object Validation {
         else -> null
     }
 
+    const val SelfDescriptionMaxLength = 40
+
+    /** The optional "Self-describe" text: at most 40 characters. */
+    fun selfDescriptionError(raw: String): String? {
+        val text = raw.trim()
+        return when {
+            text.length > SelfDescriptionMaxLength -> "Keep it under $SelfDescriptionMaxLength characters."
+            else -> null
+        }
+    }
+
     fun otpError(code: String): String? =
         if (code.length == OtpLength && code.all { it.isDigit() }) null else "Enter the $OtpLength-digit code."
 }

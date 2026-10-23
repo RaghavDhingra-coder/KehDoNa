@@ -8,4 +8,5 @@ class TestAppContainer(
     override val authRepository: FakeAuthRepository = FakeAuthRepository(),
     override val profileRepository: FakeProfileRepository = FakeProfileRepository(),
     override val googleIdTokenProvider: FakeGoogleIdTokenProvider = FakeGoogleIdTokenProvider(),
+    override val matchRepository: FakeMatchRepository = FakeMatchRepository(),
 ) : AppContainer

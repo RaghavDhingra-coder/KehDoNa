@@ -50,6 +50,7 @@ import com.codecrafters.kehdona.ui.theme.Line
 fun HomeScreen(
     viewModel: HomeViewModel,
     onOpenProfile: () -> Unit,
+    onMatch: () -> Unit,
     onDiscoverVibe: () -> Unit,
     onSignedOut: () -> Unit,
 ) {
@@ -57,13 +58,14 @@ fun HomeScreen(
     LaunchedEffect(state) {
         if (state == HomeUiState.SignedOut) onSignedOut()
     }
-    HomeScreen(state, onOpenProfile, onDiscoverVibe, viewModel::signOut, viewModel::refresh)
+    HomeScreen(state, onOpenProfile, onMatch, onDiscoverVibe, viewModel::signOut, viewModel::refresh)
 }
 
 @Composable
 fun HomeScreen(
     state: HomeUiState,
     onOpenProfile: () -> Unit,
+    onMatch: () -> Unit,
     onDiscoverVibe: () -> Unit,
     onSignOut: () -> Unit,
     onRetry: () -> Unit,
@@ -81,7 +83,7 @@ fun HomeScreen(
                 )
                 SecondaryButton(text = "Log out", onClick = onSignOut, modifier = Modifier.fillMaxWidth())
             }
-            is HomeUiState.Ready -> ReadyContent(state, onOpenProfile, onDiscoverVibe, onSignOut)
+            is HomeUiState.Ready -> ReadyContent(state, onOpenProfile, onMatch, onDiscoverVibe, onSignOut)
         }
     }
 }
@@ -90,6 +92,7 @@ fun HomeScreen(
 private fun ReadyContent(
     state: HomeUiState.Ready,
     onOpenProfile: () -> Unit,
+    onMatch: () -> Unit,
     onDiscoverVibe: () -> Unit,
     onSignOut: () -> Unit,
 ) {
@@ -107,8 +110,9 @@ private fun ReadyContent(
             )
         }
         Spacer(Modifier.height(4.dp))
+        MatchCard(onMatch)
         ProfileCard(state.profile, state.personality, onOpenProfile, onDiscoverVibe)
-        Badge(text = "Confessions & matching arrive soon", tone = BadgeTone.Lavender, icon = Icons.Filled.Favorite)
+        Badge(text = "Confessions & chat arrive soon", tone = BadgeTone.Lavender, icon = Icons.Filled.Favorite)
         Spacer(Modifier.height(8.dp))
         SecondaryButton(
             text = if (state.isSigningOut) "Logging out…" else "Log out",
@@ -117,6 +121,32 @@ private fun ReadyContent(
             leadingIcon = Icons.AutoMirrored.Filled.ExitToApp,
             modifier = Modifier.fillMaxWidth(),
         )
+    }
+}
+
+@Composable
+private fun MatchCard(onMatch: () -> Unit) {
+    Surface(
+        shape = MaterialTheme.shapes.large,
+        color = Color.White.copy(alpha = 0.04f),
+        border = BorderStroke(1.dp, Line),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("MATCH", style = MaterialTheme.typography.labelSmall, color = InkSubtle)
+            Text("Meet someone on your wavelength", style = MaterialTheme.typography.headlineSmall)
+            Text(
+                "One tap: we find the most compatible person who's also open to you. No swiping.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = InkMuted,
+            )
+            PrimaryButton(
+                text = "Match",
+                onClick = onMatch,
+                trailingIcon = Icons.Filled.Favorite,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
     }
 }
 
@@ -166,7 +196,7 @@ private fun HomePreview() {
                 UserProfile(uid = "1", name = "Riya Sharma", email = "riya@example.com", phoneNumber = null),
                 PersonalityProfile("Communication style: [Observed] Warm.", importedAtMillis = 0),
             ),
-            {}, {}, {}, {},
+            {}, {}, {}, {}, {},
         )
     }
 }
