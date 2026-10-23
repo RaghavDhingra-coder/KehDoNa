@@ -15,6 +15,7 @@ import com.codecrafters.kehdona.navigation.KehDoNaNavHost
 import com.codecrafters.kehdona.ui.components.AmbientBackground
 import com.codecrafters.kehdona.ui.components.ErrorState
 import com.codecrafters.kehdona.ui.components.LoadingState
+import com.codecrafters.kehdona.ui.components.QuietButton
 import com.codecrafters.kehdona.ui.screens.start.StartUiState
 import com.codecrafters.kehdona.ui.screens.start.StartViewModel
 
@@ -23,7 +24,11 @@ import com.codecrafters.kehdona.ui.screens.start.StartViewModel
 fun KehDoNaApp(container: AppContainer) {
     val startViewModel: StartViewModel = viewModel {
         val sessionResolver = SessionResolver(container.authRepository, container.profileRepository)
-        StartViewModel(container.onboardingRepository, sessionResolver::resolve)
+        StartViewModel(
+            repository = container.onboardingRepository,
+            signOut = container.authRepository::signOut,
+            resolveSession = sessionResolver::resolve,
+        )
     }
     val state by startViewModel.uiState.collectAsStateWithLifecycle()
 
@@ -35,6 +40,11 @@ fun KehDoNaApp(container: AppContainer) {
                     title = "Something went wrong",
                     message = current.message,
                     onRetry = startViewModel::retry,
+                    secondaryAction = if (current.canSignOut) {
+                        { QuietButton(text = "Log out", onClick = startViewModel::signOutAndRestart) }
+                    } else {
+                        null
+                    },
                 )
             }
             is StartUiState.Ready -> KehDoNaNavHost(

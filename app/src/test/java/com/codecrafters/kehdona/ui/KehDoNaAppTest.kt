@@ -7,6 +7,8 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.codecrafters.kehdona.data.profile.UserProfile
+import com.codecrafters.kehdona.data.profile.profileException
+import com.google.firebase.firestore.FirebaseFirestoreException.Code
 import com.codecrafters.kehdona.testutil.FakeAuthRepository
 import com.codecrafters.kehdona.testutil.FakeAuthRepository.Companion.user
 import com.codecrafters.kehdona.testutil.FakeOnboardingRepository
@@ -93,5 +95,21 @@ class KehDoNaAppTest {
         composeRule.onNodeWithText("Open My Profile").performScrollTo().performClick()
 
         composeRule.onNodeWithText("Relationship preferences").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test
+    fun personalityReadDenied_showsRealCode_andLogOutEscapes() {
+        val profiles = FakeProfileRepository(UserProfile("u1", "Riya", null, "+919876543210")).apply {
+            failPersonalityReadWith = profileException(Code.PERMISSION_DENIED)
+        }
+        val auth = FakeAuthRepository(signedIn = user(uid = "u1"))
+        launch(FakeOnboardingRepository(completed = true), auth, profiles)
+
+        composeRule.onNodeWithText("(Firestore: PERMISSION_DENIED)", substring = true).assertIsDisplayed()
+        composeRule.onNodeWithText("Check your connection", substring = true).assertDoesNotExist()
+
+        composeRule.onNodeWithText("Log out").performScrollTo().performClick()
+
+        composeRule.onNodeWithText("Ready when you are.").assertIsDisplayed()
     }
 }

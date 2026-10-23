@@ -22,11 +22,11 @@ class FirestoreProfileRepository(
 
     private fun personalityDoc(uid: String) = firestore().collection(PersonalityProfiles).document(uid)
 
-    override suspend fun getProfile(uid: String): UserProfile? = guard {
+    override suspend fun getProfile(uid: String): UserProfile? = guard("get users") {
         doc(uid).get().await().takeIf { it.exists() }?.toProfile()
     }
 
-    override suspend fun createProfile(profile: UserProfile) = guard {
+    override suspend fun createProfile(profile: UserProfile) = guard("create users") {
         val ref = doc(profile.uid)
         // email / phoneNumber come from Firebase Auth; the rules require them to match the ID token.
         val data = buildMap {
@@ -48,11 +48,12 @@ class FirestoreProfileRepository(
         Unit
     }
 
-    override suspend fun getPersonality(uid: String): PersonalityProfile? = guard {
+    override suspend fun getPersonality(uid: String): PersonalityProfile? = guard("get personalityProfiles") {
         personalityDoc(uid).get().await().takeIf { it.exists() }?.toPersonality()
     }
 
-    override suspend fun finalizePersonality(uid: String, response: String): PersonalityProfile = guard {
+    override suspend fun finalizePersonality(uid: String, response: String): PersonalityProfile =
+        guard("finalize personalityProfiles") {
         val ref = personalityDoc(uid)
         // A transaction (not a plain set) so an offline save fails instead of queueing, and a
         // retry after an ambiguous failure finds the already-locked profile instead of overwriting.
@@ -78,7 +79,7 @@ class FirestoreProfileRepository(
 
     override suspend fun skipPersonality(uid: String) = update(uid, mapOf(PersonalitySkipped to true))
 
-    private suspend fun update(uid: String, fields: Map<String, Any>) = guard {
+    private suspend fun update(uid: String, fields: Map<String, Any>) = guard("update users") {
         doc(uid).update(fields + (UpdatedAt to FieldValue.serverTimestamp())).await()
         Unit
     }
@@ -96,16 +97,17 @@ class FirestoreProfileRepository(
         importedAtMillis = getTimestamp(ImportedAt)?.toDate()?.time,
     )
 
-    private suspend fun <T> guard(block: suspend () -> T): T = try {
+    /** [operation] names the call and collection for logs; uids and profile content are never logged. */
+    private suspend fun <T> guard(operation: String, block: suspend () -> T): T = try {
         block()
     } catch (e: CancellationException) {
         throw e
     } catch (e: FirebaseFirestoreException) {
         // Status code only; profile contents are never logged.
-        Log.w(LogTag, "Firestore profile call failed: ${e.code.name}")
+        Log.w(LogTag, "Firestore $operation failed: ${e.code.name}")
         throw profileException(e.code, e)
     } catch (e: Exception) {
-        Log.w(LogTag, "Firestore profile call failed: ${e.javaClass.simpleName}")
+        Log.w(LogTag, "Firestore $operation failed: ${e.javaClass.simpleName}")
         throw ProfileException(
             "We couldn't save or load your profile. Please try again. (${e.javaClass.simpleName})",
             code = e.javaClass.simpleName,

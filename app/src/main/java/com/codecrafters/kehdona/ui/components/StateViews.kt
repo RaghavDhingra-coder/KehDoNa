@@ -69,6 +69,7 @@ fun ErrorState(
     modifier: Modifier = Modifier,
     onRetry: (() -> Unit)? = null,
     retryLabel: String = "Try again",
+    secondaryAction: (@Composable () -> Unit)? = null,
 ) {
     MessageState(
         icon = Icons.Filled.Warning,
@@ -80,6 +81,7 @@ fun ErrorState(
         if (onRetry != null) {
             PrimaryButton(text = retryLabel, onClick = onRetry, trailingIcon = Icons.Filled.Refresh)
         }
+        secondaryAction?.invoke()
     }
 }
 

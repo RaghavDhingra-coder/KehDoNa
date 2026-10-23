@@ -19,6 +19,9 @@ class FakeProfileRepository(vararg initial: UserProfile) : ProfileRepository {
     /** Thrown instead of the generic failure when set, e.g. a PERMISSION_DENIED from Firestore. */
     var failWith: ProfileException? = null
 
+    /** Makes only getPersonality fail, e.g. live rules that don't cover personalityProfiles. */
+    var failPersonalityReadWith: ProfileException? = null
+
     /** Makes only finalizePersonality fail, e.g. to simulate going offline mid-save. */
     var failFinalizeWith: ProfileException? = null
 
@@ -38,6 +41,7 @@ class FakeProfileRepository(vararg initial: UserProfile) : ProfileRepository {
     }
 
     override suspend fun getPersonality(uid: String): PersonalityProfile? {
+        failPersonalityReadWith?.let { throw it }
         check()
         return personalities[uid]
     }

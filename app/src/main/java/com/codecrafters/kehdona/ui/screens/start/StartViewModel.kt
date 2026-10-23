@@ -18,12 +18,15 @@ enum class StartDestination { Welcome, AuthEntry, VerifyEmail, ProfileSetup, Dis
 sealed interface StartUiState {
     data object Loading : StartUiState
     data class Ready(val destination: StartDestination) : StartUiState
-    data class Error(val message: String) : StartUiState
+    /** [canSignOut] when a signed-in account couldn't be loaded, so the person isn't stuck. */
+    data class Error(val message: String, val canSignOut: Boolean = false) : StartUiState
 }
 
 /** Decides the first screen from the signed-in session, then from whether onboarding was completed. */
 class StartViewModel(
     private val repository: OnboardingRepository,
+    private val signOut: suspend () -> Unit = {},
+    // Last, so `StartViewModel(repository) { stage }` keeps meaning "resolve the session".
     private val resolveSession: suspend () -> SessionStage = { SessionStage.SignedOut },
 ) : ViewModel() {
 
@@ -35,6 +38,14 @@ class StartViewModel(
     }
 
     fun retry() = load()
+
+    /** Escape hatch from a profile-load error: sign out and start from the sign-in screen. */
+    fun signOutAndRestart() {
+        viewModelScope.launch {
+            signOut()
+            load()
+        }
+    }
 
     private fun load() {
         _uiState.value = StartUiState.Loading
@@ -53,8 +64,20 @@ class StartViewModel(
                 StartUiState.Ready(destination)
             } catch (_: IOException) {
                 StartUiState.Error("We couldn't read KehDoNa's saved settings on this device.")
-            } catch (_: ProfileException) {
-                StartUiState.Error("We couldn't load your account. Check your connection and try again.")
+            } catch (e: ProfileException) {
+                if (e.code == "UNAUTHENTICATED") {
+                    // The saved session is no longer valid: sign out and show sign-in, not an error.
+                    signOut()
+                    val completed = runCatching { repository.hasCompletedOnboarding.first() }.getOrDefault(true)
+                    StartUiState.Ready(if (completed) StartDestination.AuthEntry else StartDestination.Welcome)
+                } else {
+                    // Keep the repository's message: it names the real cause and ends with the
+                    // Firestore code (e.g. PERMISSION_DENIED vs UNAVAILABLE).
+                    StartUiState.Error(
+                        e.message ?: "We couldn't load your account. Please try again.",
+                        canSignOut = true,
+                    )
+                }
             }
         }
     }
