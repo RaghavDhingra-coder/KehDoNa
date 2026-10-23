@@ -1,0 +1,96 @@
+rules_version = '2';
+
+// KehDoNa Phase 2: each member can read and write only their own private profile at users/{uid}.
+// Tested by firestore-tests/ on the local emulator. Publish via Console › Firestore › Rules, or
+// `firebase use --add` then `firebase deploy --only firestore:rules` (firebase.json is already set up).
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isOwner(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    // --- Field validation (mirrors domain/Validation.kt and PersonalityPrompt.kt) ---
+
+    // 2–50 characters, starts with a letter, then letters, marks, spaces, . ' - ; no outer spaces.
+    function validName(name) {
+      return name is string
+        && name.size() >= 2 && name.size() <= 50
+        && name.trim() == name
+        && name.matches("^[\\p{L}\\p{M}][\\p{L}\\p{M} .'-]*$");
+    }
+
+    function validEmail(email) {
+      return email is string
+        && email.size() >= 6 && email.size() <= 254
+        && email.matches("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$");
+    }
+
+    // E.164, e.g. +919876543210.
+    function validPhone(phone) {
+      return phone is string && phone.matches("^\\+[1-9][0-9]{6,14}$");
+    }
+
+    // Email / phone must be exactly what Firebase Auth put in the caller's ID token.
+    function emailMatchesAuth(email) {
+      return validEmail(email) && email == request.auth.token.get('email', null);
+    }
+
+    function phoneMatchesAuth(phone) {
+      return validPhone(phone) && phone == request.auth.token.get('phone_number', null);
+    }
+
+    function allowedKeys() {
+      return ['name', 'email', 'phoneNumber', 'personalityProfile', 'personalityUpdatedAt',
+              'personalitySkipped', 'createdAt', 'updatedAt'];
+    }
+
+    // Type and size checks shared by create and update.
+    function validShape(data) {
+      return data.keys().hasOnly(allowedKeys())
+        && validName(data.name)
+        && (!('personalityProfile' in data)
+              || (data.personalityProfile is string && data.personalityProfile.size() <= 12000))
+        && (!('personalitySkipped' in data) || data.personalitySkipped is bool)
+        && (!('personalityUpdatedAt' in data) || data.personalityUpdatedAt is timestamp);
+    }
+
+    function validCreate(data) {
+      return validShape(data)
+        && data.keys().hasAll(['name', 'createdAt', 'updatedAt'])
+        // FieldValue.serverTimestamp() resolves to request.time; client clocks are rejected.
+        && data.createdAt == request.time
+        && data.updatedAt == request.time
+        && (!('personalityUpdatedAt' in data) || data.personalityUpdatedAt == request.time)
+        && (!('email' in data) || emailMatchesAuth(data.email))
+        && (!('phoneNumber' in data) || phoneMatchesAuth(data.phoneNumber));
+    }
+
+    function changedKeys(data, existing) {
+      return data.diff(existing).affectedKeys();
+    }
+
+    function validUpdate(data, existing) {
+      return validShape(data)
+        && data.createdAt == existing.createdAt
+        && data.updatedAt == request.time
+        && (!changedKeys(data, existing).hasAny(['personalityUpdatedAt']) || data.personalityUpdatedAt == request.time)
+        // Contact details may only change to what Firebase Auth currently says.
+        && (!changedKeys(data, existing).hasAny(['email']) || emailMatchesAuth(data.email))
+        && (!changedKeys(data, existing).hasAny(['phoneNumber']) || phoneMatchesAuth(data.phoneNumber));
+    }
+
+    match /users/{uid} {
+      allow get: if isOwner(uid);
+      allow list: if false;
+      allow create: if isOwner(uid) && validCreate(request.resource.data);
+      allow update: if isOwner(uid) && validUpdate(request.resource.data, resource.data);
+      allow delete: if false;
+    }
+
+    // Everything else, including subcollections of users/{uid}, stays closed until later phases.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

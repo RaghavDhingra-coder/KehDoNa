@@ -1,0 +1,26 @@
+package com.codecrafters.kehdona
+import android.graphics.Color
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import com.codecrafters.kehdona.ui.KehDoNaApp
+import com.codecrafters.kehdona.ui.theme.KehDoNaTheme
+
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        // The UI is always dark, so keep system bar icons light regardless of system theme.
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
+        )
+        super.onCreate(savedInstanceState)
+        val container = (application as KehDoNaApplication).container
+        setContent {
+            KehDoNaTheme {
+                KehDoNaApp(container)
+            }
+        }
+    }
+}

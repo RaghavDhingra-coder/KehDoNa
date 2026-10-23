@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Used by XML resources (window background, launcher icon). Compose colours live in ui/theme/Color.kt. -->
+    <color name="kehdona_night">#FF0F0812</color>
+    <color name="kehdona_rose">#FFF07B9C</color>
+</resources>

@@ -1,0 +1,206 @@
+@import '@fontsource-variable/fraunces/opsz.css';
+@import '@fontsource-variable/fraunces/opsz-italic.css';
+@import '@fontsource-variable/plus-jakarta-sans/wght.css';
+@import 'tailwindcss';
+
+/*
+ * KehDoNa design tokens.
+ * Every colour, font, radius and shadow used by the UI is defined here so the
+ * whole app can be re-themed from one place.
+ */
+@theme {
+  /* Only the brand palette below is available — Tailwind's defaults are cleared. */
+  --color-*: initial;
+  --color-white: #ffffff;
+  --color-black: #000000;
+
+  /* Fonts — self-hosted, with system fallbacks if the files fail to load. */
+  --font-display: 'Fraunces Variable', 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;
+  --font-sans:
+    'Plus Jakarta Sans Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif;
+
+  /* Near-black aubergine — page and dark surfaces */
+  --color-night-950: #0f0812;
+  --color-night-900: #160c1a;
+  --color-night-850: #1d1123;
+  --color-night-800: #26172d;
+  --color-night-700: #33203b;
+
+  /* Midnight plum */
+  --color-plum-900: #2a1033;
+  --color-plum-800: #3d1749;
+  --color-plum-700: #55205f;
+  --color-plum-600: #6e2b78;
+
+  /* Deep violet */
+  --color-violet-700: #3b2a7a;
+  --color-violet-600: #4c37a0;
+  --color-violet-500: #6650c8;
+  --color-violet-400: #8a76e0;
+
+  /* Blush & rose */
+  --color-rose-500: #e0567f;
+  --color-rose-400: #f07b9c;
+  --color-rose-300: #f6a3b9;
+  --color-blush-200: #f9cfd9;
+  --color-blush-100: #fde8ee;
+
+  /* Lavender & lilac */
+  --color-lavender-400: #b9a6ef;
+  --color-lavender-300: #cfc2f7;
+  --color-lavender-200: #e3dbfb;
+  --color-lilac-500: #9a84b8;
+
+  /* Warm cream — occasional light surfaces */
+  --color-cream-50: #fdf8f2;
+  --color-cream-100: #f7eee2;
+  --color-cream-200: #ecdcc8;
+
+  /* Text & lines (AA contrast on night-950 and night-850) */
+  --color-ink: #f6eff7;
+  --color-ink-muted: #c3b3c9;
+  --color-ink-subtle: #9a88a2;
+  --color-ink-dark: #24132a;
+  --color-ink-dark-muted: #5f4a64;
+  --color-line: rgb(246 239 247 / 0.09);
+  --color-line-strong: rgb(246 239 247 / 0.16);
+
+  /* Type scale */
+  --text-display: clamp(2.75rem, 1.6rem + 5.2vw, 5.75rem);
+  --text-display--line-height: 1.02;
+  --text-display--letter-spacing: -0.025em;
+  --text-h2: clamp(2rem, 1.45rem + 2.4vw, 3.4rem);
+  --text-h2--line-height: 1.08;
+  --text-h2--letter-spacing: -0.02em;
+  --text-h3: clamp(1.4rem, 1.2rem + 0.8vw, 1.8rem);
+  --text-h3--line-height: 1.2;
+  --text-lead: clamp(1.0625rem, 1rem + 0.35vw, 1.25rem);
+  --text-lead--line-height: 1.6;
+  --text-label: 0.75rem;
+  --text-label--line-height: 1;
+  --text-label--letter-spacing: 0.14em;
+
+  /* Shape */
+  --radius-card: 1.75rem;
+  --radius-panel: 1.25rem;
+  --radius-pill: 999px;
+
+  /* Elevation */
+  --shadow-card: 0 1px 0 0 rgb(255 255 255 / 0.05) inset, 0 24px 48px -24px rgb(5 0 10 / 0.7);
+  --shadow-lift: 0 1px 0 0 rgb(255 255 255 / 0.07) inset, 0 32px 64px -28px rgb(5 0 10 / 0.85);
+  --shadow-glow: 0 10px 40px -10px rgb(240 123 156 / 0.55);
+
+  /* Motion */
+  --ease-soft: cubic-bezier(0.22, 1, 0.36, 1);
+  --animate-float: float 7s ease-in-out infinite;
+
+  @keyframes float {
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-8px);
+    }
+  }
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    scroll-padding-top: 5.5rem;
+    -webkit-text-size-adjust: 100%;
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-night-950 font-sans text-ink antialiased;
+    overflow-x: clip;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background: rgb(240 123 156 / 0.35);
+    color: var(--color-ink);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-lavender-300);
+    outline-offset: 3px;
+    border-radius: 0.5rem;
+  }
+}
+
+@utility text-gradient-rose {
+  background-image: linear-gradient(
+    100deg,
+    var(--color-blush-200) 0%,
+    var(--color-rose-300) 40%,
+    var(--color-lavender-300) 100%
+  );
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+}
+
+@utility grain {
+  position: relative;
+  isolation: isolate;
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    opacity: 0.06;
+    mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(22px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Entrance reveal driven by the <Reveal> component. */
+[data-reveal] {
+  opacity: 0;
+  transform: translateY(18px);
+  transition:
+    opacity 0.8s var(--ease-soft),
+    transform 0.8s var(--ease-soft);
+  transition-delay: var(--reveal-delay, 0ms);
+}
+
+[data-reveal='visible'] {
+  opacity: 1;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  [data-reveal] {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -1,0 +1,32 @@
+*.iml
+.gradle
+/local.properties
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+
+# --- Web app (client/ + server/) ---
+node_modules/
+dist/
+coverage/
+*.log
+npm-debug.log*
+.env
+.env.*
+!.env.example
+server/src/generated/
+.kotlin
+
+# Firebase emulator logs
+firebase-debug.log
+firestore-debug.log
+ui-debug.log

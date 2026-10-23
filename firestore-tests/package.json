@@ -1,0 +1,14 @@
+{
+  "name": "kehdona-firestore-tests",
+  "private": true,
+  "description": "Security-rule tests for firestore.rules, run against the local Firestore emulator only.",
+  "type": "module",
+  "scripts": {
+    "test": "firebase emulators:exec --config ../firebase.json --only firestore --project demo-kehdona \"node rules.test.mjs\""
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "4.0.1",
+    "firebase": "11.10.0",
+    "firebase-tools": "14.27.0"
+  }
+}
