@@ -1,13 +1,11 @@
 package com.codecrafters.kehdona.domain
 
-import java.text.Normalizer
-
-/** The fixed prompt copied for ChatGPT, plus checks on the profile pasted back. */
+/** The fixed prompt copied for ChatGPT, plus the check that a pasted reply is really its answer. */
 object PersonalityPrompt {
     const val MinProfileLength = 80
     const val MaxProfileLength = 12_000
 
-    /** Label the prompt asks ChatGPT to use, so the app can spot a name it inferred. */
+    /** Older replies may start with this line; it's an AI identity claim, so it is never shown as a trait. */
     const val NameLabel = "Name mentioned in our chats"
 
     val text: String = """
@@ -17,13 +15,11 @@ object PersonalityPrompt {
         - Do not invent facts about me. If there isn't enough context for a section, write "Not enough context" instead of guessing.
         - Clearly separate what you OBSERVED (directly supported by our chats) from what you INFER (a reasonable guess). Label every point as [Observed] or [Inferred].
         - Do not include sensitive details such as health, religion, caste, sexuality, political views, finances, exact location, phone numbers, emails, or anyone else's private information.
-        - Do not state my age, gender, college, or appearance unless I explicitly told you, and even then keep it out of the profile.
+        - Do not include my name, age, gender, college, or appearance.
         - Be warm, honest and balanced, not flattering. Write in second person ("You…").
         - Keep it under 450 words.
 
         Use exactly this format:
-
-        $NameLabel: <the name I've used for myself in our chats, or "Not mentioned">
 
         Communication style:
         Interests:
@@ -39,50 +35,28 @@ object PersonalityPrompt {
         Reply with only the profile, no introduction.
     """.trimIndent()
 
+    /** Sentences that only appear in the prompt itself, never in ChatGPT's reply. */
+    private val PromptMarkers = listOf("Use exactly this format", "Ground rules:", "Reply with only the profile")
+
+    /** Minimum number of the prompt's section headings a pasted reply must contain. */
+    const val MinRecognizedSections = 3
+
+    /**
+     * Null when [raw] looks like ChatGPT's reply to this prompt. The profile is permanent
+     * once saved, so a random paste must not be accepted.
+     */
     fun profileError(raw: String): String? {
         val text = raw.trim()
         return when {
             text.isEmpty() -> "Paste the profile ChatGPT wrote for you."
             text.length < MinProfileLength -> "That looks too short. Paste ChatGPT's full reply."
             text.length > MaxProfileLength -> "That's longer than expected. Paste just the personality profile."
+            // The clipboard still holds our own prompt (it has the headings too): never lock that in.
+            PromptMarkers.any { text.contains(it, ignoreCase = true) } ->
+                "That's the KehDoNa prompt, not ChatGPT's answer. Send it in ChatGPT, then copy the reply."
+            PersonalityParser.recognizedHeadingCount(text) < MinRecognizedSections ->
+                "This doesn't look like ChatGPT's reply to the KehDoNa prompt. Paste its full reply."
             else -> null
         }
     }
-
-    /**
-     * Returns the name ChatGPT reported, or null if it didn't report one. This is an
-     * unverified claim and is only ever shown back to the person to confirm.
-     */
-    fun extractSuggestedName(profile: String): String? {
-        val pattern = Regex(
-            "^[\\s*_#>-]*" + Regex.escape(NameLabel) + "[\\s*_]*:[\\s*_]*(.+)$",
-            setOf(RegexOption.IGNORE_CASE, RegexOption.MULTILINE),
-        )
-        val value = pattern.find(profile)?.groupValues?.get(1)
-            ?.trim()
-            ?.trim('*', '_', '"', '“', '”', '\'', '<', '>', '.', ' ')
-            ?: return null
-        val placeholder = Regex("^(not mentioned|none|unknown|n/?a|not (enough|available).*)$", RegexOption.IGNORE_CASE)
-        if (value.isEmpty() || placeholder.matches(value)) return null
-        return Validation.normalizeName(value).takeIf { Validation.nameError(it) == null }
-    }
-
-    /**
-     * True when [suggested] isn't simply (part of) the verified [profileName], e.g.
-     * "Riya" for "Riya Sharma" is fine, "Priya" is a conflict worth asking about.
-     */
-    fun isNameConflict(profileName: String, suggested: String?): Boolean {
-        if (suggested == null) return false
-        val known = nameTokens(profileName)
-        val claimed = nameTokens(suggested)
-        return claimed.isNotEmpty() && !known.containsAll(claimed)
-    }
-
-    private fun nameTokens(name: String): Set<String> =
-        Normalizer.normalize(name, Normalizer.Form.NFD)
-            .replace(Regex("\\p{M}"), "")
-            .lowercase()
-            .split(Regex("[\\s.'-]+"))
-            .filter { it.isNotEmpty() }
-            .toSet()
 }

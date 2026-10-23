@@ -1,6 +1,7 @@
 package com.codecrafters.kehdona.data.auth
 
 import android.content.Context
+import android.util.Log
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseException
 import com.google.firebase.FirebaseNetworkException
@@ -10,7 +11,6 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseAuthException
 import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
 import com.google.firebase.auth.FirebaseAuthInvalidUserException
-import com.google.firebase.auth.FirebaseAuthUserCollisionException
 import com.google.firebase.auth.FirebaseAuthWeakPasswordException
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
@@ -118,7 +118,10 @@ class FirebaseAuthRepository(
     override suspend fun reloadUser(): AuthUser? = guard {
         val user = auth.currentUser ?: return@guard null
         user.reload().await()
-        auth.currentUser?.toAuthUser()
+        val refreshed = auth.currentUser ?: return@guard null
+        // reload() doesn't refresh the ID token; do it so Firestore sees email_verified = true.
+        if (refreshed.isEmailVerified) refreshed.getIdToken(true).await()
+        refreshed.toAuthUser()
     }
 
     override suspend fun sendPasswordReset(email: String) = guard {
@@ -148,7 +151,10 @@ class FirebaseAuthRepository(
         } catch (e: AuthException) {
             throw e
         } catch (e: Exception) {
-            throw AuthException(e.toAuthError(), e)
+            val mapped = e.toAuthException()
+            // Codes and exception types only: never messages, phone numbers, passwords, codes or tokens.
+            Log.w(LogTag, "Firebase Auth failed: ${mapped.code} (${e.javaClass.simpleName}) -> ${mapped.error}")
+            throw mapped
         }
     }
 
@@ -172,27 +178,51 @@ internal fun FirebaseUser.toAuthUser(): AuthUser {
     )
 }
 
-internal fun Throwable.toAuthError(): AuthError = when (this) {
-    is FirebaseNetworkException -> AuthError.Network
-    is FirebaseTooManyRequestsException -> AuthError.TooManyRequests
-    is FirebaseAuthWeakPasswordException -> AuthError.WeakPassword
-    is FirebaseAuthUserCollisionException -> when (errorCode) {
-        "ERROR_EMAIL_ALREADY_IN_USE" -> AuthError.EmailInUse
-        else -> AuthError.AccountExistsWithOtherMethod
+private const val LogTag = "KehDoNaAuth"
+
+/** "[ BILLING_NOT_ENABLED ]"-style codes that Firebase puts in internal error messages. */
+private val BracketedCode = Regex("""\[\s*([A-Z][A-Z0-9_]{2,})\s*[\]:]""")
+
+/** The real Firebase error code, e.g. ERROR_OPERATION_NOT_ALLOWED or BILLING_NOT_ENABLED. */
+internal fun Throwable.firebaseErrorCode(): String? = when (this) {
+    is FirebaseAuthException -> errorCode
+    is FirebaseNetworkException -> "NETWORK_ERROR"
+    is FirebaseTooManyRequestsException -> "TOO_MANY_REQUESTS"
+    else -> message?.let { BracketedCode.find(it)?.groupValues?.get(1) }
+}
+
+/** Maps a Firebase failure to a specific [AuthError], keeping the real code for display. */
+internal fun Throwable.toAuthException(): AuthException {
+    val code = firebaseErrorCode()
+    val error = when {
+        this is FirebaseNetworkException -> AuthError.Network
+        this is FirebaseTooManyRequestsException -> AuthError.TooManyRequests
+        this is FirebaseAuthWeakPasswordException -> AuthError.WeakPassword
+        else -> when (code) {
+            "ERROR_EMAIL_ALREADY_IN_USE" -> AuthError.EmailInUse
+            "ERROR_ACCOUNT_EXISTS_WITH_DIFFERENT_CREDENTIAL", "ERROR_CREDENTIAL_ALREADY_IN_USE" ->
+                AuthError.AccountExistsWithOtherMethod
+            "ERROR_INVALID_PHONE_NUMBER", "ERROR_MISSING_PHONE_NUMBER" -> AuthError.InvalidPhone
+            "ERROR_INVALID_VERIFICATION_CODE", "ERROR_MISSING_VERIFICATION_CODE" -> AuthError.InvalidCode
+            "ERROR_SESSION_EXPIRED" -> AuthError.CodeExpired
+            "ERROR_INVALID_CREDENTIAL", "ERROR_WRONG_PASSWORD", "ERROR_USER_NOT_FOUND", "ERROR_INVALID_EMAIL" ->
+                AuthError.InvalidCredentials
+            "ERROR_USER_DISABLED" -> AuthError.UserDisabled
+            // The provider is switched off in Firebase Console › Authentication › Sign-in method.
+            "ERROR_OPERATION_NOT_ALLOWED" -> AuthError.MethodNotEnabled
+            // The app's package / SHA fingerprints aren't registered, or Play Integrity / reCAPTCHA failed.
+            "ERROR_APP_NOT_AUTHORIZED", "ERROR_MISSING_CLIENT_IDENTIFIER", "ERROR_INVALID_APP_CREDENTIAL",
+            "ERROR_MISSING_APP_CREDENTIAL", "ERROR_INVALID_CERT_HASH", "ERROR_API_NOT_AVAILABLE" ->
+                AuthError.AppNotAuthorized
+            "ERROR_QUOTA_EXCEEDED", "TOO_MANY_ATTEMPTS_TRY_LATER" -> AuthError.TooManyRequests
+            // Phone auth needs a billing-enabled (Blaze) project.
+            "BILLING_NOT_ENABLED" -> AuthError.PhoneUnavailable
+            "ERROR_USER_TOKEN_EXPIRED", "ERROR_INVALID_USER_TOKEN", "ERROR_REQUIRES_RECENT_LOGIN" -> AuthError.NotSignedIn
+            else -> when (this) {
+                is FirebaseAuthInvalidCredentialsException, is FirebaseAuthInvalidUserException -> AuthError.InvalidCredentials
+                else -> AuthError.Unknown
+            }
+        }
     }
-    is FirebaseAuthInvalidCredentialsException -> when (errorCode) {
-        "ERROR_INVALID_PHONE_NUMBER", "ERROR_MISSING_PHONE_NUMBER" -> AuthError.InvalidPhone
-        "ERROR_INVALID_VERIFICATION_CODE" -> AuthError.InvalidCode
-        "ERROR_SESSION_EXPIRED" -> AuthError.CodeExpired
-        else -> AuthError.InvalidCredentials
-    }
-    is FirebaseAuthInvalidUserException -> when (errorCode) {
-        "ERROR_USER_DISABLED" -> AuthError.UserDisabled
-        else -> AuthError.InvalidCredentials
-    }
-    is FirebaseAuthException -> when (errorCode) {
-        "ERROR_OPERATION_NOT_ALLOWED", "ERROR_APP_NOT_AUTHORIZED" -> AuthError.MethodNotEnabled
-        else -> AuthError.Unknown
-    }
-    else -> AuthError.Unknown
+    return AuthException(error, code = code ?: javaClass.simpleName, cause = this)
 }

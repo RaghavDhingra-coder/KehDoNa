@@ -2,6 +2,7 @@ package com.codecrafters.kehdona.ui
 
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -14,17 +15,22 @@ import androidx.navigation.compose.ComposeNavigator
 import androidx.navigation.testing.TestNavHostController
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.codecrafters.kehdona.data.auth.AuthError
+import com.codecrafters.kehdona.data.profile.ProfileException
 import com.codecrafters.kehdona.data.profile.UserProfile
 import com.codecrafters.kehdona.navigation.AuthEntryRoute
 import com.codecrafters.kehdona.navigation.AuthRoute
+import com.codecrafters.kehdona.navigation.HomeRoute
+import com.codecrafters.kehdona.navigation.MyProfileRoute
 import com.codecrafters.kehdona.navigation.KehDoNaNavHost
 import com.codecrafters.kehdona.navigation.OnboardingRoute
 import com.codecrafters.kehdona.navigation.VibeRoute
 import com.codecrafters.kehdona.navigation.WelcomeRoute
 import com.codecrafters.kehdona.testutil.FakeAuthRepository
+import com.codecrafters.kehdona.testutil.FakeGoogleIdTokenProvider
 import com.codecrafters.kehdona.testutil.FakeOnboardingRepository
 import com.codecrafters.kehdona.testutil.FakeProfileRepository
 import com.codecrafters.kehdona.testutil.TestAppContainer
+import com.codecrafters.kehdona.testutil.TestReplies
 import com.codecrafters.kehdona.ui.screens.start.StartDestination
 import com.codecrafters.kehdona.ui.theme.KehDoNaTheme
 import kotlin.reflect.KClass
@@ -46,8 +52,10 @@ class NavigationTest {
     private var auth = FakeAuthRepository()
     private val profiles = FakeProfileRepository()
 
+    private var google = FakeGoogleIdTokenProvider()
+
     private fun launch(start: StartDestination) {
-        val container = TestAppContainer(repository, auth, profiles)
+        val container = TestAppContainer(repository, auth, profiles, google)
         composeRule.setContent {
             navController = TestNavHostController(LocalContext.current).apply {
                 navigatorProvider.addNavigator(ComposeNavigator())
@@ -162,29 +170,103 @@ class NavigationTest {
     }
 
     @Test
-    fun vibe_nameConflict_showsPrivateConfirmation() {
+    fun signUp_withoutGoogleOAuthClient_disablesOnlyGoogle_withHonestNote() {
+        google = FakeGoogleIdTokenProvider(isConfigured = false)
+        launch(StartDestination.AuthEntry)
+        clickText("Create an account")
+
+        composeRule.onNodeWithText("Sign up with Google").performScrollTo().assertIsNotEnabled()
+        composeRule.onNodeWithText(AuthError.GoogleNotConfigured.message).performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText(AuthError.NotConfigured.message).assertDoesNotExist()
+        composeRule.onNodeWithText("Send OTP").performScrollTo().assertIsEnabled()
+    }
+
+    @Test
+    fun vibe_validPaste_autoSavesLocks_andLandsOnHome_withCleanBackStack() {
         auth = FakeAuthRepository(signedIn = FakeAuthRepository.user(uid = "u1"))
         profiles.profiles["u1"] = UserProfile("u1", "Riya Sharma", null, "+919876543210")
         launch(StartDestination.DiscoverVibe)
 
         clickText("I already have my profile")
-        composeRule.onNodeWithText("ChatGPT's personality profile").performTextInput(
-            "Name mentioned in our chats: Priya\n\nCommunication style: [Observed] Quick, playful and warm, " +
-                "with a soft spot for long voice notes.",
-        )
-        clickText("Save my profile")
+        composeRule.onNodeWithText("Or paste ChatGPT's reply here").performTextInput(TestReplies.WithDifferentName)
 
-        composeRule.onNodeWithText("Quick check: is this you?").assertIsDisplayed()
-        clickText("Keep “Riya Sharma”")
-
-        composeRule.onNodeWithText("Your vibe is saved ✨").assertIsDisplayed()
+        assertCurrentRoute(HomeRoute::class)
+        composeRule.onNodeWithText("Welcome, Riya 💗").assertIsDisplayed()
+        assertNull("Vibe flow must not be reachable with Back", navController.previousBackStackEntry)
+        assertEquals(TestReplies.WithDifferentName, profiles.personalities.getValue("u1").response)
         assertEquals("Riya Sharma", profiles.profiles.getValue("u1").name)
+    }
+
+    @Test
+    fun vibe_saveFailure_staysOnPaste_withReplyKept() {
+        auth = FakeAuthRepository(signedIn = FakeAuthRepository.user(uid = "u1"))
+        profiles.profiles["u1"] = UserProfile("u1", "Riya Sharma", null, "+919876543210")
+        profiles.failFinalizeWith = ProfileException("We couldn't reach the server. (Firestore: UNAVAILABLE)", "UNAVAILABLE")
+        launch(StartDestination.DiscoverVibe)
+
+        clickText("I already have my profile")
+        composeRule.onNodeWithText("Or paste ChatGPT's reply here").performTextInput(TestReplies.Valid)
+
+        assertCurrentRoute(VibeRoute::class)
+        composeRule.onNodeWithText("We couldn't reach the server. (Firestore: UNAVAILABLE)").performScrollTo().assertIsDisplayed()
+        assertTrue(profiles.personalities.isEmpty())
+
+        profiles.failFinalizeWith = null
+        clickText("Try saving again")
+        assertCurrentRoute(HomeRoute::class)
+    }
+
+    @Test
+    fun myProfile_showsSupportedSections_fullResponse_andNoWayToEdit() {
+        auth = FakeAuthRepository(signedIn = FakeAuthRepository.user(uid = "u1"))
+        profiles.profiles["u1"] = UserProfile("u1", "Riya Sharma", null, "+919876543210")
+        profiles.withPersonality("u1")
+        launch(StartDestination.Home)
+
+        clickText("Open My Profile")
+
+        assertCurrentRoute(MyProfileRoute::class)
+        composeRule.onNodeWithText("Final · read-only".uppercase()).assertIsDisplayed()
+        listOf("Communication style", "Interests", "Relationship preferences", "Strengths").forEach {
+            composeRule.onNodeWithText(it).performScrollTo().assertIsDisplayed()
+        }
+        composeRule.onNodeWithText("Indie music and late-night playlists").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Values").assertDoesNotExist() // "Not enough context" in the reply
+        clickText("Show full response")
+        composeRule.onNodeWithText(TestReplies.Valid).performScrollTo().assertIsDisplayed()
+        listOf("Update my vibe", "Edit", "Replace", "Regenerate", "Discover my vibe ✨", "Save my profile").forEach {
+            composeRule.onNodeWithText(it, substring = true).assertDoesNotExist()
+        }
+
+        composeRule.onNodeWithContentDescription("Back").performScrollTo().performClick()
+        assertCurrentRoute(HomeRoute::class)
+        composeRule.onNodeWithText("Update my vibe").assertDoesNotExist()
+    }
+
+    @Test
+    fun profile_isStillReadable_afterLogOut_andLogInAgain() {
+        auth = FakeAuthRepository(signedIn = FakeAuthRepository.user(uid = "phone-uid", phone = "+919876543210"))
+        profiles.profiles["phone-uid"] = UserProfile("phone-uid", "Riya Sharma", null, "+919876543210")
+        profiles.withPersonality("phone-uid")
+        launch(StartDestination.Home)
+
+        clickText("Log out")
+        assertCurrentRoute(AuthEntryRoute::class)
+        clickText("Log in")
+        composeRule.onNodeWithText("Phone number").performTextInput("9876543210")
+        clickText("Send OTP")
+        composeRule.onNodeWithContentDescription("Verification code", substring = true).performTextInput("123456")
+
+        assertCurrentRoute(HomeRoute::class)
+        clickText("Open My Profile")
+        composeRule.onNodeWithText("Indie music and late-night playlists").performScrollTo().assertIsDisplayed()
     }
 
     @Test
     fun home_logOut_returnsToAuthEntry() {
         auth = FakeAuthRepository(signedIn = FakeAuthRepository.user(uid = "u1"))
-        profiles.profiles["u1"] = UserProfile("u1", "Riya Sharma", null, "+919876543210", personalityProfile = "Warm.")
+        profiles.profiles["u1"] = UserProfile("u1", "Riya Sharma", null, "+919876543210")
+        profiles.withPersonality("u1")
         launch(StartDestination.Home)
 
         clickText("Log out")

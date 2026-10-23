@@ -18,9 +18,13 @@ class CredentialManagerGoogleIdTokenProvider(
     private val activityTracker: ForegroundActivityTracker,
 ) : GoogleIdTokenProvider {
 
+    /** Only true once Google is enabled in Firebase and google-services.json has the web OAuth client. */
+    override val isConfigured: Boolean by lazy { webClientId() != null }
+
     override suspend fun requestIdToken(): String {
-        val clientId = webClientId() ?: throw AuthException(AuthError.NotConfigured)
-        val activity = activityTracker.activity ?: throw AuthException(AuthError.GoogleUnavailable)
+        val clientId = webClientId()
+            ?: throw AuthException(AuthError.GoogleNotConfigured, code = "MISSING_DEFAULT_WEB_CLIENT_ID")
+        val activity = activityTracker.activity ?: throw AuthException(AuthError.GoogleUnavailable, code = "NO_ACTIVITY")
         val request = GetCredentialRequest.Builder()
             .addCredentialOption(GetSignInWithGoogleOption.Builder(clientId).build())
             .build()
@@ -31,17 +35,17 @@ class CredentialManagerGoogleIdTokenProvider(
         } catch (_: NoCredentialException) {
             throw AuthException(AuthError.NoGoogleAccount)
         } catch (e: GetCredentialException) {
-            throw AuthException(AuthError.GoogleUnavailable, e)
+            throw AuthException(AuthError.GoogleUnavailable, code = e.type.substringAfterLast('.'), cause = e)
         }
         if (credential !is CustomCredential ||
             credential.type != GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
         ) {
-            throw AuthException(AuthError.GoogleUnavailable)
+            throw AuthException(AuthError.GoogleUnavailable, code = "UNEXPECTED_CREDENTIAL_TYPE")
         }
         return try {
             GoogleIdTokenCredential.createFrom(credential.data).idToken
         } catch (e: GoogleIdTokenParsingException) {
-            throw AuthException(AuthError.GoogleUnavailable, e)
+            throw AuthException(AuthError.GoogleUnavailable, code = "ID_TOKEN_PARSING_FAILED", cause = e)
         }
     }
 

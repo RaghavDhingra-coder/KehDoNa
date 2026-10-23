@@ -1,6 +1,7 @@
 rules_version = '2';
 
-// KehDoNa Phase 2: each member can read and write only their own private profile at users/{uid}.
+// KehDoNa Phase 2: each member can read and write only their own private profile at users/{uid},
+// and create (once) and read their own finalized personality profile at personalityProfiles/{uid}.
 // Tested by firestore-tests/ on the local emulator. Publish via Console › Firestore › Rules, or
 // `firebase use --add` then `firebase deploy --only firestore:rules` (firebase.json is already set up).
 service cloud.firestore {
@@ -41,18 +42,14 @@ service cloud.firestore {
     }
 
     function allowedKeys() {
-      return ['name', 'email', 'phoneNumber', 'personalityProfile', 'personalityUpdatedAt',
-              'personalitySkipped', 'createdAt', 'updatedAt'];
+      return ['name', 'email', 'phoneNumber', 'personalitySkipped', 'createdAt', 'updatedAt'];
     }
 
     // Type and size checks shared by create and update.
     function validShape(data) {
       return data.keys().hasOnly(allowedKeys())
         && validName(data.name)
-        && (!('personalityProfile' in data)
-              || (data.personalityProfile is string && data.personalityProfile.size() <= 12000))
-        && (!('personalitySkipped' in data) || data.personalitySkipped is bool)
-        && (!('personalityUpdatedAt' in data) || data.personalityUpdatedAt is timestamp);
+        && (!('personalitySkipped' in data) || data.personalitySkipped is bool);
     }
 
     function validCreate(data) {
@@ -61,7 +58,6 @@ service cloud.firestore {
         // FieldValue.serverTimestamp() resolves to request.time; client clocks are rejected.
         && data.createdAt == request.time
         && data.updatedAt == request.time
-        && (!('personalityUpdatedAt' in data) || data.personalityUpdatedAt == request.time)
         && (!('email' in data) || emailMatchesAuth(data.email))
         && (!('phoneNumber' in data) || phoneMatchesAuth(data.phoneNumber));
     }
@@ -74,7 +70,6 @@ service cloud.firestore {
       return validShape(data)
         && data.createdAt == existing.createdAt
         && data.updatedAt == request.time
-        && (!changedKeys(data, existing).hasAny(['personalityUpdatedAt']) || data.personalityUpdatedAt == request.time)
         // Contact details may only change to what Firebase Auth currently says.
         && (!changedKeys(data, existing).hasAny(['email']) || emailMatchesAuth(data.email))
         && (!changedKeys(data, existing).hasAny(['phoneNumber']) || phoneMatchesAuth(data.phoneNumber));
@@ -88,7 +83,28 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // Everything else, including subcollections of users/{uid}, stays closed until later phases.
+    // The finalized personality profile: ChatGPT's reply exactly as imported. It can be created
+    // once by its owner and is then permanently read-only for every client.
+    function validPersonality(data) {
+      return data.keys().hasOnly(['response', 'promptVersion', 'importedAt'])
+        && data.keys().hasAll(['response', 'promptVersion', 'importedAt'])
+        && data.response is string
+        && data.response.size() >= 80 && data.response.size() <= 12000
+        && data.promptVersion is int && data.promptVersion >= 1
+        && data.importedAt == request.time;
+    }
+
+    match /personalityProfiles/{uid} {
+      allow get: if isOwner(uid);
+      allow list: if false;
+      // Needs the owner's profile to exist first, so the flow order can't be skipped.
+      allow create: if isOwner(uid)
+        && exists(/databases/$(database)/documents/users/$(uid))
+        && validPersonality(request.resource.data);
+      allow update, delete: if false;
+    }
+
+    // Everything else, including subcollections, stays closed until later phases.
     match /{document=**} {
       allow read, write: if false;
     }

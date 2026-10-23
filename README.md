@@ -29,10 +29,11 @@ Source layout (`app/src/main/java/com/codecrafters/kehdona/`):
 | `ui/screens` | `start` (launch state), `welcome`, `onboarding`, `auth` — screens + ViewModels |
 | `ui/screens/auth` | Auth entry, sign-up / log-in form with OTP step, `AuthViewModel` |
 | `ui/screens/account` | Email verification and profile-name setup |
-| `ui/screens/vibe` | "Let's discover your vibe ✨", ChatGPT handoff, paste screen, private name confirmation |
+| `ui/screens/vibe` | "Let's discover your vibe ✨", ChatGPT handoff, paste screen (auto-saves a valid reply) |
+| `ui/screens/profile` | My Profile: the finalized personality profile, read-only |
 | `ui/screens/home` | Signed-in landing: private profile and log-out |
 | `navigation` | `@Serializable` routes and `KehDoNaNavHost` |
-| `domain` | Validation, `SessionResolver` (which screen a member resumes at), the personality prompt and name check |
+| `domain` | Validation, `SessionResolver` (which screen a member resumes at), the personality prompt and `PersonalityParser` |
 | `data/auth`, `data/profile` | Firebase Auth, Credential Manager (Google), Firestore profiles, each behind an interface |
 | `data/onboarding`, `model`, `di` | `OnboardingRepository` (DataStore), models, `AppContainer` (manual DI) |
 
@@ -46,16 +47,27 @@ The web `client/` and `server/` below are a separate, earlier prototype and are 
 2. Email accounts must click the verification link before continuing.
 3. Accounts without a profile (e.g. first Google log-in) are asked for their name.
 4. **Let's discover your vibe ✨**: *Discover My Personality* copies a fixed prompt to the clipboard
-   and opens the ChatGPT app (or chatgpt.com). The member pastes ChatGPT's reply back, and it is saved.
-5. If ChatGPT's text names the member differently, a private screen asks them to keep their name,
-   accept the suggestion or type a correction. The name only changes on an explicit choice.
-6. Home shows the private profile, *Update my vibe* and *Log out*. Relaunching resumes at the right step.
+   and opens the ChatGPT app (or chatgpt.com). Pasting ChatGPT's reply (or *Paste from clipboard*)
+   saves it automatically, locks it, and goes straight to Home, with no confirmation step. Pastes
+   that aren't a reply to the prompt (including the prompt itself) are rejected. If saving fails,
+   nothing is locked and the reply stays on screen (and survives process death) for a retry.
+5. **The personality profile is final.** There is no edit, replace, re-import or regenerate. The
+   signup name is never changed by anything ChatGPT writes.
+6. Home shows a personal welcome, *Open My Profile* and *Log out*. **My Profile** shows the sections
+   the reply actually supports (with Observed / Inferred labels) and the full original reply. It is
+   loaded from Firestore, so it's there after log-out/log-in, restarts and reinstalls.
 
 Passwords and OTP codes go straight to Firebase and are never stored by the app. Profiles live in
 Firestore at `users/{uid}`, readable and writable only by their owner (`firestore.rules`). The rules
 also require server timestamps (`createdAt` can never change), require `email` / `phoneNumber` to
 match the caller's Firebase Auth ID token, and check every field's type and length. Creating a
 profile runs in a transaction, so a retry only updates the name and never overwrites `createdAt`.
+
+The personality profile lives in its own document, `personalityProfiles/{uid}`: the reply verbatim
+(`response`), `promptVersion` and a server `importedAt`. The rules let the owner **create it once**
+(only after `users/{uid}` exists) and read it; **update and delete are denied for every client**,
+and nobody else can read or list it. Saving runs in a transaction, so an offline save fails instead
+of queueing, and a retry after an ambiguous failure returns the already-locked profile.
 
 Firebase has no built-in email OTP, so email accounts are verified with Firebase's verification
 link. A 6-digit email code would need a backend (e.g. a Cloud Function issuing custom tokens).
@@ -104,10 +116,28 @@ Firebase services. After connecting a Firebase project, check on a real device:
 1. Phone sign-up with a test number from *Phone numbers for testing* → code screen → vibe screen.
 2. Email sign-up → verification email arrives → "I've verified my email" moves on.
 3. Google sign-in → new account asks for a name; returning account opens home.
-4. Discover My Personality → ChatGPT opens with the prompt copied → paste → saved; a different name
-   in the reply shows the private confirmation screen.
+4. Discover My Personality → ChatGPT opens with the prompt copied → paste the reply → lands on Home
+   → Open My Profile shows the sections and the full reply; there is no way to change it.
 5. Log out → auth entry; relaunch → the right screen resumes.
-6. In the Firestore console, `users/{uid}` contains only the fields listed in `firestore.rules`.
+6. In the Firestore console, `users/{uid}` and `personalityProfiles/{uid}` contain only the fields
+   listed in `firestore.rules`.
+
+### Sign-in troubleshooting
+
+Errors end with the real Firebase code, e.g. "(ERROR_OPERATION_NOT_ALLOWED)". Logcat tags
+`KehDoNaAuth` / `KehDoNaProfile` log the code only (never messages, numbers, codes or tokens).
+
+| Shown code | Cause | Fix (Firebase console) |
+| --- | --- | --- |
+| `MISSING_DEFAULT_WEB_CLIENT_ID` | Google isn't enabled, so `google-services.json` has no web OAuth client | Authentication › Sign-in method › enable **Google**, then download `google-services.json` again |
+| `ERROR_OPERATION_NOT_ALLOWED` | That provider is switched off | Authentication › Sign-in method › enable it (Phone / Email/Password / Google) |
+| `ERROR_APP_NOT_AUTHORIZED`, `ERROR_MISSING_CLIENT_IDENTIFIER`, `ERROR_INVALID_APP_CREDENTIAL` | This build's SHA fingerprints aren't registered, or Play Integrity / reCAPTCHA failed | Project settings › Your apps › add SHA-1 and SHA-256 (`./gradlew signingReport`); enable the Play Integrity API |
+| `BILLING_NOT_ENABLED` | Phone auth needs a billing-enabled project | Upgrade to Blaze, or test with *Phone numbers for testing* |
+| `Firestore: PERMISSION_DENIED` | The project's Firestore rules aren't KehDoNa's (the console default denies everything) | Publish `firestore.rules` (Firestore › Rules) |
+| `Firestore: NOT_FOUND` / `FAILED_PRECONDITION` | No Firestore database | Firestore Database › Create database |
+
+On an emulator, Play Integrity can't pass, so phone sign-in falls back to a reCAPTCHA page; test
+numbers from *Phone numbers for testing* skip SMS entirely.
 
 ## Repository layout
 

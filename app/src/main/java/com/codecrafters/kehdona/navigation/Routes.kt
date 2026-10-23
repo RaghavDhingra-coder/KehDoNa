@@ -24,9 +24,13 @@ data object VerifyEmailRoute
 @Serializable
 data class ProfileSetupRoute(val prefillName: String? = null)
 
-/** "Let's discover your vibe". [updating] when reopened from home to refresh the profile. */
+/** "Let's discover your vibe". [fromHome] when opened from Home before a profile was imported. */
 @Serializable
-data class VibeRoute(val updating: Boolean = false)
+data class VibeRoute(val fromHome: Boolean = false)
 
 @Serializable
 data object HomeRoute
+
+/** The member's own finalized, read-only profile. */
+@Serializable
+data object MyProfileRoute

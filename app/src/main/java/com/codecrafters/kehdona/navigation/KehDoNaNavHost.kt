@@ -7,6 +7,7 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -26,6 +27,8 @@ import com.codecrafters.kehdona.ui.screens.home.HomeScreen
 import com.codecrafters.kehdona.ui.screens.home.HomeViewModel
 import com.codecrafters.kehdona.ui.screens.onboarding.OnboardingScreen
 import com.codecrafters.kehdona.ui.screens.onboarding.OnboardingViewModel
+import com.codecrafters.kehdona.ui.screens.profile.MyProfileScreen
+import com.codecrafters.kehdona.ui.screens.profile.MyProfileViewModel
 import com.codecrafters.kehdona.ui.screens.start.StartDestination
 import com.codecrafters.kehdona.ui.screens.vibe.VibeScreen
 import com.codecrafters.kehdona.ui.screens.vibe.VibeViewModel
@@ -126,10 +129,11 @@ fun KehDoNaNavHost(
             )
         }
         composable<VibeRoute> { entry ->
-            val updating = entry.toRoute<VibeRoute>().updating
+            val fromHome = entry.toRoute<VibeRoute>().fromHome
             VibeScreen(
-                viewModel = viewModel { VibeViewModel(auth, profiles) },
-                updating = updating,
+                // The saved-state handle keeps a pasted reply if the process is killed mid-save.
+                viewModel = viewModel { VibeViewModel(auth, profiles, createSavedStateHandle()) },
+                fromHome = fromHome,
                 onNext = { goTo(it) },
                 onBack = { navController.popBackStack() },
             )
@@ -137,7 +141,16 @@ fun KehDoNaNavHost(
         composable<HomeRoute> {
             HomeScreen(
                 viewModel = viewModel { HomeViewModel(auth, profiles) },
-                onUpdateVibe = { navController.navigate(VibeRoute(updating = true)) },
+                onOpenProfile = { navController.navigate(MyProfileRoute) },
+                onDiscoverVibe = { navController.navigate(VibeRoute(fromHome = true)) },
+                onSignedOut = { goTo(SessionStage.SignedOut) },
+            )
+        }
+        composable<MyProfileRoute> {
+            MyProfileScreen(
+                viewModel = viewModel { MyProfileViewModel(auth, profiles) },
+                onBack = { navController.popBackStack() },
+                onDiscoverVibe = { navController.navigate(VibeRoute(fromHome = true)) },
                 onSignedOut = { goTo(SessionStage.SignedOut) },
             )
         }

@@ -1,14 +1,30 @@
 package com.codecrafters.kehdona.testutil
 
+import com.codecrafters.kehdona.data.profile.PersonalityProfile
 import com.codecrafters.kehdona.data.profile.ProfileException
 import com.codecrafters.kehdona.data.profile.ProfileRepository
 import com.codecrafters.kehdona.data.profile.UserProfile
 
-/** In-memory [ProfileRepository] that records name updates and can be made to fail. */
+/**
+ * In-memory [ProfileRepository] standing in for Firestore. It outlives ViewModels and sign-outs,
+ * like server data does, and enforces the same create-once rule for personality profiles.
+ */
 class FakeProfileRepository(vararg initial: UserProfile) : ProfileRepository {
     val profiles = initial.associateBy { it.uid }.toMutableMap()
-    val nameUpdates = mutableListOf<String>()
+    val personalities = mutableMapOf<String, PersonalityProfile>()
     var failAll = false
+    var finalizeAttempts = 0
+        private set
+
+    /** Thrown instead of the generic failure when set, e.g. a PERMISSION_DENIED from Firestore. */
+    var failWith: ProfileException? = null
+
+    /** Makes only finalizePersonality fail, e.g. to simulate going offline mid-save. */
+    var failFinalizeWith: ProfileException? = null
+
+    fun withPersonality(uid: String, response: String = TestReplies.Valid) = apply {
+        personalities[uid] = PersonalityProfile(response, importedAtMillis = ImportedAt)
+    }
 
     override suspend fun getProfile(uid: String): UserProfile? {
         check()
@@ -21,15 +37,17 @@ class FakeProfileRepository(vararg initial: UserProfile) : ProfileRepository {
         profiles[profile.uid] = profiles[profile.uid]?.copy(name = profile.name) ?: profile
     }
 
-    override suspend fun updateName(uid: String, name: String) {
+    override suspend fun getPersonality(uid: String): PersonalityProfile? {
         check()
-        nameUpdates += name
-        profiles[uid] = profiles.getValue(uid).copy(name = name)
+        return personalities[uid]
     }
 
-    override suspend fun savePersonality(uid: String, profileText: String) {
+    override suspend fun finalizePersonality(uid: String, response: String): PersonalityProfile {
+        finalizeAttempts++
+        failFinalizeWith?.let { throw it }
         check()
-        profiles[uid] = profiles.getValue(uid).copy(personalityProfile = profileText, personalitySkipped = false)
+        // Create-once, like the rules: an existing profile is returned and never replaced.
+        return personalities.getOrPut(uid) { PersonalityProfile(response, importedAtMillis = ImportedAt) }
     }
 
     override suspend fun skipPersonality(uid: String) {
@@ -38,6 +56,11 @@ class FakeProfileRepository(vararg initial: UserProfile) : ProfileRepository {
     }
 
     private fun check() {
+        failWith?.let { throw it }
         if (failAll) throw ProfileException("Simulated profile failure")
+    }
+
+    private companion object {
+        const val ImportedAt = 1_761_000_000_000L
     }
 }

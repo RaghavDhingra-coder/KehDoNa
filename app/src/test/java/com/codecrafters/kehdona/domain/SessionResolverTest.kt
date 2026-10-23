@@ -41,6 +41,6 @@ class SessionResolverTest {
         val auth = FakeAuthRepository(signedIn = user())
         assertEquals(SessionStage.DiscoverVibe, stage(auth, FakeProfileRepository(profile)))
         assertEquals(SessionStage.Home, stage(auth, FakeProfileRepository(profile.copy(personalitySkipped = true))))
-        assertEquals(SessionStage.Home, stage(auth, FakeProfileRepository(profile.copy(personalityProfile = "Warm."))))
+        assertEquals(SessionStage.Home, stage(auth, FakeProfileRepository(profile).withPersonality("uid-1")))
     }
 }

@@ -1,5 +1,6 @@
 package com.codecrafters.kehdona.ui.screens.vibe
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.codecrafters.kehdona.data.auth.AuthRepository
@@ -7,44 +8,40 @@ import com.codecrafters.kehdona.data.profile.ProfileException
 import com.codecrafters.kehdona.data.profile.ProfileRepository
 import com.codecrafters.kehdona.domain.PersonalityPrompt
 import com.codecrafters.kehdona.domain.SessionStage
-import com.codecrafters.kehdona.domain.Validation
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-enum class VibeStep { Loading, LoadFailed, Intro, Paste, ConfirmName, Done }
+enum class VibeStep { Loading, LoadFailed, Intro, Paste }
 
 /** Where the prompt was opened, so the paste screen can say the right thing. */
 enum class ChatGptTarget { App, Browser, None }
 
 data class VibeUiState(
     val step: VibeStep = VibeStep.Loading,
-    /** The verified profile name; never changed without the person's explicit confirmation. */
-    val profileName: String = "",
     val profileText: String = "",
     val profileError: String? = null,
     val openedIn: ChatGptTarget? = null,
-    /** A different name found in the AI's text. Unverified: only shown back for confirmation. */
-    val suggestedName: String? = null,
-    val customName: String = "",
-    val customNameError: String? = null,
     val isSaving: Boolean = false,
     val errorMessage: String? = null,
     val next: SessionStage? = null,
 )
 
 /**
- * "Discover your vibe": hands the fixed prompt to ChatGPT, saves the profile the person
- * pastes back, and asks before any AI-suggested name could touch their profile.
+ * "Discover your vibe": hands the fixed prompt to ChatGPT, then saves the reply the person
+ * pastes back. A valid paste is saved and locked automatically and the person goes straight
+ * home; the profile is final from then on. If saving fails nothing is locked and the pasted
+ * text is kept (even across process death) so they can retry.
  */
 class VibeViewModel(
     private val auth: AuthRepository,
     private val profiles: ProfileRepository,
+    private val savedState: SavedStateHandle,
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(VibeUiState())
+    private val _uiState = MutableStateFlow(VibeUiState(profileText = savedState[DraftKey] ?: ""))
     val uiState: StateFlow<VibeUiState> = _uiState.asStateFlow()
 
     init {
@@ -60,11 +57,13 @@ class VibeViewModel(
         _uiState.update { it.copy(step = VibeStep.Loading, errorMessage = null) }
         viewModelScope.launch {
             try {
-                val profile = profiles.getProfile(user.uid)
-                if (profile == null) {
-                    _uiState.update { it.copy(next = SessionStage.ProfileSetup) }
-                } else {
-                    _uiState.update { it.copy(step = VibeStep.Intro, profileName = profile.name) }
+                when {
+                    profiles.getProfile(user.uid) == null -> _uiState.update { it.copy(next = SessionStage.ProfileSetup) }
+                    // Already finalized: there is no re-import, so go home.
+                    profiles.getPersonality(user.uid) != null -> _uiState.update { it.copy(next = SessionStage.Home) }
+                    else -> _uiState.update {
+                        it.copy(step = if (it.profileText.isBlank()) VibeStep.Intro else VibeStep.Paste)
+                    }
                 }
             } catch (e: ProfileException) {
                 _uiState.update { it.copy(step = VibeStep.LoadFailed, errorMessage = e.message) }
@@ -77,13 +76,31 @@ class VibeViewModel(
         it.copy(step = VibeStep.Paste, openedIn = target, errorMessage = null)
     }
 
-    /** Skip ahead when the person already has a profile from ChatGPT. */
+    /** Skip ahead when the person already has a reply from ChatGPT. */
     fun goToPaste() = _uiState.update { it.copy(step = VibeStep.Paste) }
 
     fun backToIntro() = _uiState.update { it.copy(step = VibeStep.Intro, profileError = null, errorMessage = null) }
 
-    fun onProfileTextChange(value: String) = _uiState.update {
-        it.copy(profileText = value.take(PersonalityPrompt.MaxProfileLength + 1), profileError = null)
+    /**
+     * Typing just edits the draft. A paste (a large chunk arriving at once) that is a valid
+     * reply is saved immediately, with no extra confirmation step.
+     */
+    fun onProfileTextChange(value: String) {
+        val previous = _uiState.value.profileText
+        val text = value.take(PersonalityPrompt.MaxProfileLength + 1)
+        setDraft(text)
+        val pasted = text.length - previous.length >= PasteThreshold
+        if (pasted && PersonalityPrompt.profileError(text) == null) saveProfile()
+    }
+
+    /** "Paste from clipboard": replaces the draft and saves straight away if it's valid. */
+    fun onPasteFromClipboard(text: String?) {
+        if (text.isNullOrBlank()) {
+            _uiState.update { it.copy(profileError = "Your clipboard is empty. Copy ChatGPT's reply first.") }
+            return
+        }
+        setDraft(text.take(PersonalityPrompt.MaxProfileLength + 1))
+        saveProfile()
     }
 
     fun saveProfile() {
@@ -93,84 +110,49 @@ class VibeViewModel(
             _uiState.update { it.copy(profileError = error) }
             return
         }
-        val text = state.profileText.trim()
-        withUser { uid ->
-            profiles.savePersonality(uid, text)
-            val suggested = PersonalityPrompt.extractSuggestedName(text)
-            _uiState.update {
-                if (PersonalityPrompt.isNameConflict(it.profileName, suggested)) {
-                    it.copy(step = VibeStep.ConfirmName, suggestedName = suggested, customName = it.profileName)
-                } else {
-                    it.copy(step = VibeStep.Done)
-                }
-            }
-        }
-    }
-
-    /** Explicit choice: the signup name stays. */
-    fun keepVerifiedName() = _uiState.update { it.copy(step = VibeStep.Done, suggestedName = null) }
-
-    /** Explicit choice: the person confirms the AI-suggested name is really theirs. */
-    fun confirmSuggestedName() {
-        val suggested = _uiState.value.suggestedName ?: return
-        updateName(suggested)
-    }
-
-    fun onCustomNameChange(value: String) = _uiState.update {
-        it.copy(customName = value.take(Validation.NameMaxLength + 10), customNameError = null)
-    }
-
-    /** Explicit choice: the person types the correct name themselves. */
-    fun confirmCustomName() {
-        val name = _uiState.value.customName
-        Validation.nameError(name)?.let { error ->
-            _uiState.update { it.copy(customNameError = error) }
-            return
-        }
-        updateName(Validation.normalizeName(name))
-    }
-
-    fun skipForNow() {
-        if (_uiState.value.isSaving) return
-        withUser { uid ->
-            profiles.skipPersonality(uid)
-            _uiState.update { it.copy(next = SessionStage.Home) }
-        }
-    }
-
-    fun finish() = _uiState.update { it.copy(next = SessionStage.Home) }
-
-    fun dismissError() = _uiState.update { it.copy(errorMessage = null) }
-
-    fun onNavigated() = _uiState.update { it.copy(next = null) }
-
-    private fun updateName(name: String) {
-        if (_uiState.value.isSaving) return
-        if (name == _uiState.value.profileName) {
-            keepVerifiedName()
-            return
-        }
-        withUser { uid ->
-            profiles.updateName(uid, name)
-            _uiState.update { it.copy(step = VibeStep.Done, profileName = name, suggestedName = null) }
-        }
-    }
-
-    private fun withUser(block: suspend (uid: String) -> Unit) {
         val uid = auth.currentUser?.uid
         if (uid == null) {
             _uiState.update { it.copy(next = SessionStage.SignedOut) }
             return
         }
+        _uiState.update { it.copy(isSaving = true, errorMessage = null, profileError = null) }
+        viewModelScope.launch {
+            try {
+                profiles.finalizePersonality(uid, state.profileText.trim())
+                savedState.remove<String>(DraftKey)
+                _uiState.update { it.copy(isSaving = false, next = SessionStage.Home) }
+            } catch (e: ProfileException) {
+                // Nothing was locked; keep the pasted reply so the person can simply retry.
+                _uiState.update { it.copy(isSaving = false, errorMessage = e.message) }
+            }
+        }
+    }
+
+    fun skipForNow() {
+        val uid = auth.currentUser?.uid ?: return
+        if (_uiState.value.isSaving) return
         _uiState.update { it.copy(isSaving = true, errorMessage = null) }
         viewModelScope.launch {
             try {
-                block(uid)
+                profiles.skipPersonality(uid)
+                _uiState.update { it.copy(isSaving = false, next = SessionStage.Home) }
             } catch (e: ProfileException) {
-                _uiState.update { it.copy(errorMessage = e.message) }
-            } finally {
-                _uiState.update { it.copy(isSaving = false) }
+                _uiState.update { it.copy(isSaving = false, errorMessage = e.message) }
             }
         }
+    }
+
+    fun onNavigated() = _uiState.update { it.copy(next = null) }
+
+    private fun setDraft(text: String) {
+        savedState[DraftKey] = text
+        _uiState.update { it.copy(profileText = text, profileError = null) }
+    }
+
+    private companion object {
+        const val DraftKey = "personalityDraft"
+
+        /** Characters added in one change that count as a paste rather than typing. */
+        const val PasteThreshold = 40
     }
 }

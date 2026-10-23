@@ -21,6 +21,7 @@ class FakeAuthRepository(
     var validCode = "123456"
     var autoVerify = false
     var failNextWith: AuthError? = null
+    var failNextCode: String? = null
     var emailVerifiedOnReload = false
     var googleUser = user(uid = "google-uid", provider = AuthProvider.Google, email = "riya@gmail.com", displayName = "Riya G")
 
@@ -98,7 +99,7 @@ class FakeAuthRepository(
         if (!isConfigured) throw AuthException(AuthError.NotConfigured)
         failNextWith?.let {
             failNextWith = null
-            throw AuthException(it)
+            throw AuthException(it, failNextCode)
         }
     }
 
@@ -118,10 +119,18 @@ class FakeAuthRepository(
     }
 }
 
-/** Google token provider that succeeds, or fails with [error]. */
-class FakeGoogleIdTokenProvider(var error: AuthError? = null) : GoogleIdTokenProvider {
+/** Google token provider that succeeds, or fails with [error] (and optional [code]). */
+class FakeGoogleIdTokenProvider(
+    var error: AuthError? = null,
+    var code: String? = null,
+    override val isConfigured: Boolean = true,
+) : GoogleIdTokenProvider {
+    var requests = 0
+        private set
+
     override suspend fun requestIdToken(): String {
-        error?.let { throw AuthException(it) }
+        requests++
+        error?.let { throw AuthException(it, code) }
         return "google-id-token"
     }
 }

@@ -76,10 +76,22 @@ class KehDoNaAppTest {
             FakeOnboardingRepository(completed = true),
             auth = FakeAuthRepository(signedIn = user(uid = "u1")),
             profiles = FakeProfileRepository(
-                UserProfile("u1", "Riya Sharma", null, "+919876543210", personalityProfile = "Warm and curious."),
-            ),
+                UserProfile("u1", "Riya Sharma", null, "+919876543210"),
+            ).withPersonality("u1"),
         )
 
-        composeRule.onNodeWithText("Hi, Riya 💗").assertIsDisplayed()
+        composeRule.onNodeWithText("Welcome, Riya 💗").assertIsDisplayed()
+    }
+
+    @Test
+    fun appRestart_reopensAtHome_andProfileIsReadable() {
+        // A fresh app start against the same stored data (Firestore is the source of truth, so
+        // the same holds after a reinstall).
+        val profiles = FakeProfileRepository(UserProfile("u1", "Riya Sharma", null, "+919876543210")).withPersonality("u1")
+        launch(FakeOnboardingRepository(completed = true), FakeAuthRepository(signedIn = user(uid = "u1")), profiles)
+
+        composeRule.onNodeWithText("Open My Profile").performScrollTo().performClick()
+
+        composeRule.onNodeWithText("Relationship preferences").performScrollTo().assertIsDisplayed()
     }
 }

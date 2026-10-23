@@ -36,6 +36,8 @@ data class AuthOutcome(val stage: SessionStage, val prefillName: String? = null)
 data class AuthUiState(
     val mode: AuthMode,
     val isConfigured: Boolean,
+    /** Google needs its own OAuth client in Firebase; phone and email work without it. */
+    val isGoogleConfigured: Boolean = true,
     val method: AuthMethod = AuthMethod.Phone,
     val step: AuthStep = AuthStep.Form,
     val name: String = "",
@@ -77,6 +79,7 @@ class AuthViewModel(
         AuthUiState(
             mode = mode,
             isConfigured = auth.isConfigured,
+            isGoogleConfigured = googleTokens.isConfigured,
             errorMessage = AuthError.NotConfigured.message.takeUnless { auth.isConfigured },
         ),
     )
@@ -156,6 +159,11 @@ class AuthViewModel(
     fun signInWithGoogle() {
         val state = _uiState.value
         if (state.isBusy || !requireConfigured()) return
+        if (!googleTokens.isConfigured) {
+            val notSetUp = AuthException(AuthError.GoogleNotConfigured, code = "MISSING_DEFAULT_WEB_CLIENT_ID")
+            _uiState.update { it.copy(errorMessage = notSetUp.message, infoMessage = null) }
+            return
+        }
         // On sign-up the name is optional here; if it's filled in it has to be valid.
         if (state.isSignUp && state.name.isNotBlank()) {
             Validation.nameError(state.name)?.let { error ->
@@ -289,7 +297,7 @@ class AuthViewModel(
                 block()
             } catch (e: AuthException) {
                 _uiState.update {
-                    onError(it).copy(errorMessage = e.error.message.takeUnless { e.error == AuthError.Cancelled })
+                    onError(it).copy(errorMessage = e.message.takeUnless { e.error == AuthError.Cancelled })
                 }
             } finally {
                 _uiState.update { it.copy(busy = null) }

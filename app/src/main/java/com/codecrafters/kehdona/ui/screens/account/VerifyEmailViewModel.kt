@@ -57,7 +57,7 @@ class VerifyEmailViewModel(
                     }
                 }
             } catch (e: AuthException) {
-                _uiState.update { it.copy(errorMessage = e.error.message) }
+                _uiState.update { it.copy(errorMessage = e.message) }
             } catch (e: ProfileException) {
                 _uiState.update { it.copy(errorMessage = e.message) }
             } finally {
@@ -76,7 +76,7 @@ class VerifyEmailViewModel(
                 _uiState.update { it.copy(infoMessage = "Sent! Check your inbox and spam folder.") }
                 startCountdown()
             } catch (e: AuthException) {
-                _uiState.update { it.copy(errorMessage = e.error.message) }
+                _uiState.update { it.copy(errorMessage = e.message) }
             } finally {
                 _uiState.update { it.copy(busy = null) }
             }

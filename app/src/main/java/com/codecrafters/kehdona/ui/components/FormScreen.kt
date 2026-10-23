@@ -40,6 +40,7 @@ import com.codecrafters.kehdona.ui.theme.InkMuted
 import com.codecrafters.kehdona.ui.theme.Line
 
 private val CardBreakpoint = 600.dp
+private val TopBarHeight = 64.dp
 
 /**
  * Shared frame for account screens: ambient background, back button and logo, and a
@@ -63,13 +64,13 @@ fun FormScreen(
             Column(
                 Modifier
                     .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .heightIn(min = minHeight),
+                    .verticalScroll(rememberScrollState()),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Row(
                     Modifier
                         .fillMaxWidth()
+                        .height(TopBarHeight)
                         .padding(horizontal = 8.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -83,10 +84,13 @@ fun FormScreen(
                     Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { KehDoNaLogo(markSize = 24.dp) }
                     Spacer(Modifier.size(48.dp))
                 }
+                // Fill at least the rest of the screen (to centre short content) but grow freely:
+                // weight() inside a scrolling column caps content at the screen height and
+                // squashes anything below the fold to zero height.
                 Box(
                     Modifier
-                        .weight(1f)
                         .fillMaxWidth()
+                        .heightIn(min = (minHeight - TopBarHeight).coerceAtLeast(0.dp))
                         .padding(horizontal = if (wide) 32.dp else 24.dp, vertical = 16.dp),
                     contentAlignment = if (wide) Alignment.Center else Alignment.TopCenter,
                 ) {

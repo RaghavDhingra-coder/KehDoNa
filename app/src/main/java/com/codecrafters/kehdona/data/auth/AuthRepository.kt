@@ -25,28 +25,44 @@ sealed interface PhoneCodeResult {
     data class AutoVerified(val user: AuthUser) : PhoneCodeResult
 }
 
-/** Why an auth call failed, already phrased for people. */
-enum class AuthError(val message: String) {
+/**
+ * Why an auth call failed, already phrased for people. [showsCode] is false for ordinary
+ * input mistakes (wrong code, wrong password), where the raw error code would only be noise.
+ */
+enum class AuthError(val message: String, val showsCode: Boolean = true) {
     NotConfigured("Sign-in isn't set up in this build yet. Firebase needs to be configured before accounts can work."),
+    GoogleNotConfigured("Google sign-in isn't set up for KehDoNa yet. Use phone or email for now."),
     Network("We couldn't reach the server. Check your connection and try again."),
-    InvalidPhone("That phone number doesn't look right. Include your country code."),
-    InvalidCode("That code isn't right. Check the SMS and try again."),
-    CodeExpired("That code has expired. Request a new one."),
+    InvalidPhone("That phone number doesn't look right. Include your country code.", showsCode = false),
+    InvalidCode("That code isn't right. Check the SMS and try again.", showsCode = false),
+    CodeExpired("That code has expired. Request a new one.", showsCode = false),
     TooManyRequests("Too many attempts. Please wait a little before trying again."),
-    EmailInUse("An account already uses this email. Try logging in instead."),
-    WeakPassword("Choose a stronger password: at least 8 characters with letters and numbers."),
-    InvalidCredentials("That email and password don't match an account."),
+    EmailInUse("An account already uses this email. Try logging in instead.", showsCode = false),
+    WeakPassword("Choose a stronger password: at least 8 characters with letters and numbers.", showsCode = false),
+    InvalidCredentials("That email and password don't match an account.", showsCode = false),
     AccountExistsWithOtherMethod("This email is already linked to another sign-in method. Log in the way you signed up."),
     UserDisabled("This account has been disabled."),
-    MethodNotEnabled("This sign-in method isn't enabled for KehDoNa yet. Try another way to sign in."),
+    MethodNotEnabled("This sign-in method is switched off for KehDoNa right now. Try another way to sign in."),
+    AppNotAuthorized("This copy of the app isn't authorised for KehDoNa sign-in yet. Try email instead."),
+    PhoneUnavailable("Phone sign-in isn't available for KehDoNa right now. Try email instead."),
     GoogleUnavailable("Google sign-in isn't available on this device right now."),
     NoGoogleAccount("No Google account found on this device. Add one in Settings, or use phone or email."),
-    Cancelled("Sign-in was cancelled."),
+    Cancelled("Sign-in was cancelled.", showsCode = false),
     NotSignedIn("Your session ended. Please sign in again."),
     Unknown("Something went wrong. Please try again."),
 }
 
-class AuthException(val error: AuthError, cause: Throwable? = null) : Exception(error.message, cause)
+/**
+ * An auth failure. [code] is the underlying Firebase / Credential Manager error code (never
+ * a secret) and is appended to the message, so real problems aren't hidden behind generic text.
+ */
+class AuthException(
+    val error: AuthError,
+    val code: String? = null,
+    cause: Throwable? = null,
+) : Exception(if (code == null || !error.showsCode) error.message else "${error.message} ($code)", cause) {
+    override val message: String get() = super.message!!
+}
 
 /**
  * Authentication backed by Firebase. Every suspend function throws [AuthException]
@@ -81,7 +97,11 @@ interface AuthRepository {
     suspend fun signOut()
 }
 
-/** Obtains a Google ID token via Credential Manager. Throws [AuthException]. */
-fun interface GoogleIdTokenProvider {
+/** Obtains a Google ID token via Credential Manager. */
+interface GoogleIdTokenProvider {
+    /** False when the build has no OAuth web client ID (Google not enabled in Firebase). */
+    val isConfigured: Boolean
+
+    /** Throws [AuthException]. */
     suspend fun requestIdToken(): String
 }

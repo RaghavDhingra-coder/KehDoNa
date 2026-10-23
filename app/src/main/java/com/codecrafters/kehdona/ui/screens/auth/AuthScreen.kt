@@ -215,11 +215,20 @@ private fun AuthForm(state: AuthUiState, actions: AuthActions) {
 
         GoogleSignInButton(
             onClick = actions.onGoogle,
-            enabled = state.isConfigured && !state.isBusy,
+            enabled = state.isConfigured && state.isGoogleConfigured && !state.isBusy,
             loading = state.busy == AuthBusy.Google,
             text = if (state.isSignUp) "Sign up with Google" else "Continue with Google",
             modifier = Modifier.fillMaxWidth(),
         )
+        if (state.isConfigured && !state.isGoogleConfigured) {
+            Text(
+                "Google sign-in isn't set up for KehDoNa yet. Use phone or email for now.",
+                style = MaterialTheme.typography.bodySmall,
+                color = InkSubtle,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
 
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(

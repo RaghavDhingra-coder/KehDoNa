@@ -34,8 +34,22 @@ function createProfile(db, uid, name, contact = {}) {
   });
 }
 const updateName = (db, uid, name) => updateDoc(doc(db, 'users', uid), { name, updatedAt: ts() });
-const savePersonality = (db, uid, text) => updateDoc(doc(db, 'users', uid),
-  { personalityProfile: text, personalityUpdatedAt: ts(), personalitySkipped: false, updatedAt: ts() });
+// finalizePersonality(): create-once in a transaction; an existing profile is returned, never overwritten.
+const REPLY = 'Communication style: [Observed] You write in quick, playful bursts.\nInterests: [Observed] Indie music.\nValues: Not enough context';
+function finalizePersonality(db, uid, response = REPLY) {
+  const ref = doc(db, 'personalityProfiles', uid);
+  return runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref);
+    if (snap.exists()) return snap.data();
+    tx.set(ref, { response, promptVersion: 1, importedAt: ts() });
+    return null;
+  });
+}
+const readPersonality = async (uid) => {
+  let data;
+  await env.withSecurityRulesDisabled(async (ctx) => { data = (await getDoc(doc(ctx.firestore(), 'personalityProfiles', uid))).data(); });
+  return data;
+};
 const skipPersonality = (db, uid) => updateDoc(doc(db, 'users', uid), { personalitySkipped: true, updatedAt: ts() });
 const read = async (uid) => {
   let data;
@@ -64,11 +78,9 @@ await check('phone sign-up creates own profile', 'allow', () => createProfile(ph
 await check('email sign-up (not yet verified) creates own profile', 'allow', () => createProfile(emailUser(), 'email1', 'Riya', { email: 'riya@college.edu' }));
 await check('Google sign-in creates own profile', 'allow', () => createProfile(googleUser(), 'g1', 'Riya G', { email: 'riya@gmail.com' }));
 await check('owner reads own profile', 'allow', () => getDoc(doc(phoneUser(), 'users', 'phone1')));
-await check('save personality profile', 'allow', () => savePersonality(phoneUser(), 'phone1', 'Communication style: [Observed] warm.'));
 await check('skip personality', 'allow', () => skipPersonality(emailUser(), 'email1'));
 await check('explicitly confirmed name change', 'allow', () => updateName(phoneUser(), 'phone1', 'Priya'));
 await check('Unicode name (Devanagari)', 'allow', () => updateName(googleUser(), 'g1', 'राघव ढींगरा'));
-await check('12,000-char personality profile', 'allow', () => savePersonality(phoneUser(), 'phone1', 'x'.repeat(12000)));
 
 console.log('createProfile retry on an existing profile (transaction)');
 const before = await read('phone1');
@@ -77,7 +89,6 @@ await check('retry is allowed and only renames', 'allow', () => createProfile(ph
 const after = await read('phone1');
 expectTrue('createdAt unchanged after retry', after.createdAt.isEqual(before.createdAt));
 expectTrue('updatedAt advanced after retry', after.updatedAt.toMillis() > before.updatedAt.toMillis());
-expectTrue('personality profile kept after retry', after.personalityProfile === before.personalityProfile);
 expectTrue('name applied by retry', after.name === 'Riya Sharma');
 await check('old set+merge on existing profile (would rewrite createdAt)', 'deny', () =>
   setDoc(doc(phoneUser(), 'users', 'phone1'), { name: 'Riya', createdAt: ts(), updatedAt: ts() }, { merge: true }));
@@ -107,8 +118,8 @@ await check('missing timestamps on create', 'deny', () => setDoc(doc(phoneUser()
 await check('update without server updatedAt', 'deny', () => updateDoc(doc(phoneUser(), 'users', 'phone1'), { name: 'Riya' }));
 await check('client-clock updatedAt', 'deny', () => updateDoc(doc(phoneUser(), 'users', 'phone1'), { name: 'Riya', updatedAt: Timestamp.now() }));
 await check('change createdAt on update', 'deny', () => updateDoc(doc(phoneUser(), 'users', 'phone1'), { createdAt: ts(), updatedAt: ts() }));
-await check('client-clock personalityUpdatedAt', 'deny', () =>
-  updateDoc(doc(phoneUser(), 'users', 'phone1'), { personalityProfile: 'hi', personalityUpdatedAt: Timestamp.now(), updatedAt: ts() }));
+await check('personality text on the users doc (old field)', 'deny', () =>
+  updateDoc(doc(phoneUser(), 'users', 'phone1'), { personalityProfile: REPLY, updatedAt: ts() }));
 
 console.log('Types and lengths (must be denied)');
 await check('name too short', 'deny', () => updateName(phoneUser(), 'phone1', 'R'));
@@ -116,9 +127,54 @@ await check('name too long', 'deny', () => updateName(phoneUser(), 'phone1', 'a'
 await check('name with digits/markup', 'deny', () => updateName(phoneUser(), 'phone1', '<b>Riya1</b>'));
 await check('name with outer spaces', 'deny', () => updateName(phoneUser(), 'phone1', ' Riya '));
 await check('name not a string', 'deny', () => updateDoc(doc(phoneUser(), 'users', 'phone1'), { name: 42, updatedAt: ts() }));
-await check('personality over 12,000 chars', 'deny', () => savePersonality(phoneUser(), 'phone1', 'x'.repeat(12001)));
 await check('personalitySkipped not a bool', 'deny', () => updateDoc(doc(phoneUser(), 'users', 'phone1'), { personalitySkipped: 'yes', updatedAt: ts() }));
 await check('unknown field', 'deny', () => updateDoc(doc(phoneUser(), 'users', 'phone1'), { isAdmin: true, updatedAt: ts() }));
+
+console.log('Finalized personality profile: create once, then read-only');
+await check('owner finalizes (create, transaction)', 'allow', () => finalizePersonality(phoneUser(), 'phone1'));
+const locked1 = await readPersonality('phone1');
+expectTrue('stored response is the exact imported reply', locked1.response === REPLY);
+expectTrue('importedAt is a server timestamp', typeof locked1.importedAt?.toMillis === 'function');
+await check('owner reads it (any later session)', 'allow', () => getDoc(doc(phoneUser(), 'personalityProfiles', 'phone1')));
+await check('retry after success returns the stored profile (no write)', 'allow', () => finalizePersonality(phoneUser(), 'phone1', REPLY + '\nStrengths: changed'));
+expectTrue('retry did not change the response', (await readPersonality('phone1')).response === REPLY);
+await check('update a finalized profile', 'deny', () => updateDoc(doc(phoneUser(), 'personalityProfiles', 'phone1'), { response: REPLY + ' edited' }));
+await check('overwrite (set) a finalized profile', 'deny', () =>
+  setDoc(doc(phoneUser(), 'personalityProfiles', 'phone1'), { response: REPLY + ' replaced', promptVersion: 1, importedAt: ts() }));
+await check('delete a finalized profile', 'deny', () => deleteDoc(doc(phoneUser(), 'personalityProfiles', 'phone1')));
+await check("another user reads it", 'deny', () => getDoc(doc(emailUser(), 'personalityProfiles', 'phone1')));
+await check('unauthenticated read', 'deny', () => getDoc(doc(anon(), 'personalityProfiles', 'phone1')));
+await check('list all personality profiles', 'deny', () => getDocs(collection(phoneUser(), 'personalityProfiles')));
+await check("create one for another UID", 'deny', () =>
+  setDoc(doc(emailUser(), 'personalityProfiles', 'g1'), { response: REPLY, promptVersion: 1, importedAt: ts() }));
+await check('create before the users profile exists', 'deny', () =>
+  setDoc(doc(phoneUser(), 'personalityProfiles', 'phone9'), { response: REPLY, promptVersion: 1, importedAt: ts() }));
+await check('too short (< 80 chars)', 'deny', () =>
+  setDoc(doc(googleUser(), 'personalityProfiles', 'g1'), { response: 'short', promptVersion: 1, importedAt: ts() }));
+await check('too long (> 12,000 chars)', 'deny', () =>
+  setDoc(doc(googleUser(), 'personalityProfiles', 'g1'), { response: 'x'.repeat(12001), promptVersion: 1, importedAt: ts() }));
+await check('client-clock importedAt', 'deny', () =>
+  setDoc(doc(googleUser(), 'personalityProfiles', 'g1'), { response: REPLY, promptVersion: 1, importedAt: Timestamp.now() }));
+await check('extra field (e.g. locked: false)', 'deny', () =>
+  setDoc(doc(googleUser(), 'personalityProfiles', 'g1'), { response: REPLY, promptVersion: 1, importedAt: ts(), locked: false }));
+await check('12,000-char reply is accepted', 'allow', () => finalizePersonality(googleUser(), 'g1', 'x'.repeat(12000)));
+
+console.log('Regression: email sign-up → verify email → load profile (the "profile couldn\'t be accessed" report)');
+const emailVerified = () => env.authenticatedContext('email2', { email: 'meera@college.edu', email_verified: true }).firestore();
+const emailUnverified = () => env.authenticatedContext('email2', { email: 'meera@college.edu', email_verified: false }).firestore();
+await check('profile created right after sign-up, before verification', 'allow', () => createProfile(emailUnverified(), 'email2', 'Meera', { email: 'meera@college.edu' }));
+await check('after verification (refreshed token) the owner can read the profile', 'allow', () => getDoc(doc(emailVerified(), 'users', 'email2')));
+await check('after verification the owner can finalize the vibe', 'allow', () => finalizePersonality(emailVerified(), 'email2'));
+
+// The Firebase console's default "production mode" rules deny everything. This reproduces the
+// PERMISSION_DENIED seen on device when firestore.rules hasn't been published to the project yet.
+const locked = await initializeTestEnvironment({
+  projectId: 'demo-kehdona-locked',
+  firestore: { rules: 'rules_version = "2"; service cloud.firestore { match /databases/{d}/documents { match /{doc=**} { allow read, write: if false; } } }', host: '127.0.0.1', port: 8085 },
+});
+const lockedOwner = () => locked.authenticatedContext('email2', { email: 'meera@college.edu', email_verified: true }).firestore();
+await check('console default locked rules: owner read is denied (reproduces the bug)', 'deny', () => getDoc(doc(lockedOwner(), 'users', 'email2')));
+await locked.cleanup();
 
 console.log(`\n${pass} passed, ${fail} failed`);
 await env.cleanup();

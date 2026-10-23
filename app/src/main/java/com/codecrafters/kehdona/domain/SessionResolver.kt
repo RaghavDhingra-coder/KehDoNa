@@ -18,11 +18,8 @@ class SessionResolver(
         val user = auth.currentUser ?: return SessionStage.SignedOut
         if (needsEmailVerification(user)) return SessionStage.VerifyEmail
         val profile = profiles.getProfile(user.uid) ?: return SessionStage.ProfileSetup
-        return if (profile.personalityProfile.isNullOrBlank() && !profile.personalitySkipped) {
-            SessionStage.DiscoverVibe
-        } else {
-            SessionStage.Home
-        }
+        if (profile.personalitySkipped) return SessionStage.Home
+        return if (profiles.getPersonality(user.uid) == null) SessionStage.DiscoverVibe else SessionStage.Home
     }
 
     /** Email/password accounts must confirm their address; Google and phone are already verified. */

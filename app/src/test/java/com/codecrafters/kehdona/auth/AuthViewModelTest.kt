@@ -104,7 +104,8 @@ class AuthViewModelTest {
 
     @Test
     fun autoVerifiedPhone_logInForExistingMember_goesHome_withoutTouchingProfile() {
-        profiles.profiles["phone-uid"] = UserProfile("phone-uid", "Riya", null, "+919876543210", personalityProfile = "Warm")
+        profiles.profiles["phone-uid"] = UserProfile("phone-uid", "Riya", null, "+919876543210")
+        profiles.withPersonality("phone-uid")
         auth.autoVerify = true
         vm = viewModel(AuthMode.LogIn)
         vm.onPhoneChange("9876543210")
@@ -253,5 +254,45 @@ class AuthViewModelTest {
 
         assertEquals(AuthProvider.Email, auth.currentUser?.provider)
         assertEquals(SessionStage.ProfileSetup, state.outcome?.stage)
+    }
+
+    @Test
+    fun googleNotConfigured_disablesGoogleOnly_withSpecificMessage() {
+        val vm = AuthViewModel(AuthMode.SignUp, auth, profiles, FakeGoogleIdTokenProvider(isConfigured = false))
+        assertTrue(vm.uiState.value.isConfigured)
+        assertTrue(!vm.uiState.value.isGoogleConfigured)
+        assertNull(vm.uiState.value.errorMessage) // phone and email stay usable
+
+        vm.signInWithGoogle()
+
+        val message = vm.uiState.value.errorMessage!!
+        assertTrue(message.startsWith(AuthError.GoogleNotConfigured.message))
+        assertTrue(message.contains("MISSING_DEFAULT_WEB_CLIENT_ID"))
+        assertTrue(!message.contains(AuthError.NotConfigured.message))
+        assertEquals(0, auth.calls)
+    }
+
+    @Test
+    fun phoneProviderDisabled_showsSpecificMessageWithFirebaseCode() {
+        auth.failNextWith = AuthError.MethodNotEnabled
+        auth.failNextCode = "ERROR_OPERATION_NOT_ALLOWED"
+        vm = viewModel(AuthMode.SignUp)
+        vm.onNameChange("Riya")
+        vm.onPhoneChange("9876543210")
+        vm.submit()
+
+        assertEquals("${AuthError.MethodNotEnabled.message} (ERROR_OPERATION_NOT_ALLOWED)", state.errorMessage)
+        assertEquals(AuthStep.Form, state.step)
+    }
+
+    @Test
+    fun phoneAppNotAuthorized_isReportedSeparately() {
+        auth.failNextWith = AuthError.AppNotAuthorized
+        auth.failNextCode = "ERROR_APP_NOT_AUTHORIZED"
+        vm = viewModel(AuthMode.LogIn)
+        vm.onPhoneChange("9876543210")
+        vm.submit()
+
+        assertEquals("${AuthError.AppNotAuthorized.message} (ERROR_APP_NOT_AUTHORIZED)", state.errorMessage)
     }
 }

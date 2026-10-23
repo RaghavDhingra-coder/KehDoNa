@@ -47,6 +47,9 @@ android {
         unitTests.all {
             // Robolectric's API 36 sandbox reads FileDescriptor internals that newer JDKs hide.
             it.jvmArgs("--add-exports=java.base/jdk.internal.access=ALL-UNNAMED")
+            // Robolectric's Trace shadow keeps every trace section for the JVM's lifetime, which
+            // outgrows the 512 MB default once there are ~100 Compose tests in one worker.
+            it.maxHeapSize = "2g"
         }
     }
 }

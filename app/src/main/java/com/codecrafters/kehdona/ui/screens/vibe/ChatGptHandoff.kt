@@ -27,6 +27,13 @@ object ChatGptHandoff {
         return if (start(context, browser)) ChatGptTarget.Browser else ChatGptTarget.None
     }
 
+    /** The clipboard's text, e.g. ChatGPT's reply after the person copied it. */
+    fun readClipboardText(context: Context): String? {
+        val clip = context.getSystemService(ClipboardManager::class.java)?.primaryClip ?: return null
+        if (clip.itemCount == 0) return null
+        return clip.getItemAt(0).coerceToText(context)?.toString()
+    }
+
     /** Copies first, so the prompt is ready to paste the moment ChatGPT opens. */
     fun copyAndOpen(context: Context): ChatGptTarget {
         copyPrompt(context)
